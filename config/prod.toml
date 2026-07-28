@@ -1,0 +1,6 @@
+environment = "prod"
+data_source = "csv"
+data_path = "data/sample_heatmap_data.csv"
+app_title = "Match-3 Progression Heatmap (Prod Simulation)"
+production_simulation = true
+
