@@ -47,7 +47,8 @@ make check
 
 ## Current Limitations
 
-- Data comes from `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
+- The active configs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
+- Spark SQL and Spark table source adapters exist for a future Databricks App, but no real Databricks source is configured.
 - The sample data covers `level_cohort` values `0..900` and daily `partition_date` values across 2026.
 - There are no real Databricks SQL queries or production connections.
 - The dashboard has no browser-based UI tests yet.
@@ -69,6 +70,11 @@ After those filters, grouped statistics are calculated by `level_cohort` and `pa
 
 ## Future Databricks Plan
 
-The repository includes a minimal `databricks.yml` for future Databricks Asset Bundles work. Databricks integration is not active yet. Later versions can add a Databricks-backed data source behind the existing `data.py` interface, keeping the Streamlit UI and heatmap logic stable.
+The repository includes a minimal `databricks.yml` for future Databricks Asset Bundles work. Databricks integration is not active yet. Later versions can add a Databricks-backed data source behind the existing `data_sources.py` interface, keeping the Streamlit UI and heatmap logic stable.
+
+The app now routes data access through `progression_heatmap.data_sources`. For Databricks App migration, keep the processing modules unchanged and switch config to either:
+
+- `data_source = "spark_sql"` with a PySpark SQL query returning the required raw columns.
+- `data_source = "spark_table"` with a Spark table name that already exposes the required raw columns.
 
 Do not commit Databricks credentials, tokens, secrets, host URLs, or production workspace details.

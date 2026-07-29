@@ -10,6 +10,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "dev.toml"
+SUPPORTED_DATA_SOURCES = ("csv", "spark_sql", "spark_table")
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,9 +19,11 @@ class AppConfig:
 
     environment: str
     data_source: str
-    data_path: Path
+    data_path: Path | None
     app_title: str
     production_simulation: bool = False
+    spark_sql: str | None = None
+    spark_table: str | None = None
 
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
@@ -32,16 +35,28 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
     environment = _required_text(raw_config, "environment")
     data_source = _required_text(raw_config, "data_source")
-    if data_source != "csv":
-        msg = "Only local CSV data_source is supported in this first version."
+    if data_source not in SUPPORTED_DATA_SOURCES:
+        msg = f"data_source must be one of: {', '.join(SUPPORTED_DATA_SOURCES)}"
         raise ValueError(msg)
+
+    data_path = None
+    spark_sql = None
+    spark_table = None
+    if data_source == "csv":
+        data_path = _resolve_project_path(_required_text(raw_config, "data_path"))
+    elif data_source == "spark_sql":
+        spark_sql = _required_text(raw_config, "spark_sql")
+    elif data_source == "spark_table":
+        spark_table = _required_text(raw_config, "spark_table")
 
     return AppConfig(
         environment=environment,
         data_source=data_source,
-        data_path=_resolve_project_path(_required_text(raw_config, "data_path")),
         app_title=_required_text(raw_config, "app_title"),
+        data_path=data_path,
         production_simulation=bool(raw_config.get("production_simulation", False)),
+        spark_sql=spark_sql,
+        spark_table=spark_table,
     )
 
 
@@ -66,4 +81,3 @@ def _required_text(config: dict[str, Any], field_name: str) -> str:
         msg = f"Config field {field_name!r} must be a non-empty string."
         raise ValueError(msg)
     return value.strip()
-

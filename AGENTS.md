@@ -59,6 +59,7 @@ Current projects:
 │       ├── app.py
 │       ├── config.py
 │       ├── data.py
+│       ├── data_sources.py
 │       ├── filters.py
 │       ├── metrics.py
 │       └── heatmap.py
@@ -113,8 +114,9 @@ Do not create noisy documentation updates for tiny internal refactors that do no
 
 - Keep UI logic separate from data and heatmap logic.
 - Keep `app.py` focused on Streamlit layout and controls.
+- Keep runtime data access in `data_sources.py`.
+- Keep raw schema validation and normalization in `data.py`.
 - Keep filtering logic in `filters.py`.
 - Keep grouped metric calculations in `metrics.py`.
 - Keep heatmap preparation logic in `heatmap.py`.
-- Keep data loading and schema validation in `data.py`.
 - Keep the dashboard practical, analytical, and easy to scan.

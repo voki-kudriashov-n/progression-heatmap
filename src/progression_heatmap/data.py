@@ -84,10 +84,20 @@ def load_raw_attempts_data(csv_path: str | Path, engine: DataEngine = "auto"):
     return _load_raw_attempts_with_pandas(path)
 
 
-def validate_required_columns(columns: pd.DataFrame | list[str] | tuple[str, ...]) -> None:
+def select_raw_attempt_columns(frame):
+    """Return a raw attempts frame constrained to the required source contract."""
+
+    validate_required_columns(frame)
+    if _is_spark_frame(frame):
+        return _normalize_raw_attempts_spark(frame)
+
+    return normalize_raw_attempts_data(frame)
+
+
+def validate_required_columns(columns) -> None:
     """Validate that all required raw source columns are present."""
 
-    column_names = columns.columns if isinstance(columns, pd.DataFrame) else columns
+    column_names = columns.columns if hasattr(columns, "columns") else columns
     missing_columns = sorted(set(RAW_REQUIRED_COLUMNS).difference(column_names))
     if missing_columns:
         msg = f"Missing required columns: {', '.join(missing_columns)}"
@@ -154,7 +164,6 @@ def _load_raw_attempts_with_pandas(path: Path) -> pd.DataFrame:
 
 def _load_raw_attempts_with_pyspark(path: Path):
     from pyspark.sql import SparkSession
-    from pyspark.sql import functions as sql_functions
     from pyspark.sql import types as sql_types
 
     schema = sql_types.StructType(
@@ -184,23 +193,27 @@ def _load_raw_attempts_with_pyspark(path: Path):
         .getOrCreate()
     )
     spark_frame = spark.read.option("header", True).schema(schema).csv(str(path))
-    validate_required_columns(spark_frame.columns)
-    return spark_frame.select(
-        sql_functions.col("client_time"),
-        sql_functions.col("user_id"),
-        sql_functions.col("balance_id"),
-        sql_functions.col("traffic_type"),
-        sql_functions.col("payer_type"),
-        sql_functions.col("failed"),
-        sql_functions.col("attempt"),
-        sql_functions.col("platform_name"),
-        sql_functions.col("first_attempt"),
-        sql_functions.col("FW"),
-        sql_functions.col("CW"),
-        sql_functions.col("CF"),
-        sql_functions.col("FF"),
-        sql_functions.col("reason_seg"),
-        sql_functions.col("partition_date"),
-        sql_functions.col("level_cohort"),
-    )
+    return select_raw_attempt_columns(spark_frame)
 
+
+def _normalize_raw_attempts_spark(frame):
+    from pyspark.sql import functions as sql_functions
+
+    selected_columns = []
+    for column in RAW_REQUIRED_COLUMNS:
+        spark_column = sql_functions.col(column)
+        if column in RAW_TEXT_COLUMNS:
+            spark_column = spark_column.cast("string")
+        elif column in RAW_INTEGER_COLUMNS:
+            spark_column = spark_column.cast("int")
+        elif column == "client_time":
+            spark_column = spark_column.cast("timestamp")
+        elif column == "partition_date":
+            spark_column = spark_column.cast("date")
+        selected_columns.append(spark_column.alias(column))
+
+    return frame.select(*selected_columns)
+
+
+def _is_spark_frame(frame) -> bool:
+    return frame.__class__.__module__.startswith("pyspark.sql")

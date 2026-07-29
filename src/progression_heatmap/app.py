@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import os
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from progression_heatmap.config import load_config
-from progression_heatmap.data import load_raw_attempts_data
+from progression_heatmap.config import AppConfig, load_config
+from progression_heatmap.data_sources import load_raw_attempts_from_config
 from progression_heatmap.filters import (
     MetricSelection,
     PreAggregationFilters,
@@ -37,9 +36,9 @@ def main() -> None:
     st.set_page_config(page_title=config.app_title, layout="wide")
     _apply_page_style()
 
-    filter_options = _load_filter_options(str(config.data_path))
+    filter_options = _load_filter_options(config)
     pre_filters, metric_selection = _render_filters(filter_options)
-    statistics = _compute_statistics(str(config.data_path), pre_filters)
+    statistics = _compute_statistics(config, pre_filters)
     metric_values = select_metric_values(statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values)
@@ -54,14 +53,14 @@ def main() -> None:
 
 
 @st.cache_data(show_spinner="Loading raw filter values...")
-def _load_filter_options(data_path: str):
-    raw_data = load_raw_attempts_data(Path(data_path))
+def _load_filter_options(config: AppConfig):
+    raw_data = load_raw_attempts_from_config(config)
     return collect_raw_filter_options(raw_data)
 
 
 @st.cache_data(show_spinner="Grouping raw attempt data...")
-def _compute_statistics(data_path: str, pre_filters: PreAggregationFilters) -> pd.DataFrame:
-    raw_data = load_raw_attempts_data(Path(data_path))
+def _compute_statistics(config: AppConfig, pre_filters: PreAggregationFilters) -> pd.DataFrame:
+    raw_data = load_raw_attempts_from_config(config)
     statistics = aggregate_statistics(raw_data, pre_filters)
     return to_pandas_frame(statistics)
 
