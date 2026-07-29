@@ -35,6 +35,10 @@ make run-prod
 
 The production config still uses the local sample CSV. It is not a real production connection.
 
+## Databricks App Smoke Test
+
+`app.yml` contains the Databricks App startup command for the Streamlit dashboard. It runs `src/progression_heatmap/app.py` with the Databricks runtime port and uses `config/prod.toml`.
+
 ## Tests And Linting
 
 ```bash

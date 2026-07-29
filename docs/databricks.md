@@ -12,6 +12,22 @@ The local fixture is intentionally kept below the Databricks App deployment sour
 
 There are no active Databricks queries, jobs, tables, clusters, warehouses, hosts, credentials, or deployment resources in this first version.
 
+## App Runtime
+
+`app.yml` defines the Databricks App startup command:
+
+```yaml
+command:
+  - "streamlit"
+  - "run"
+  - "src/progression_heatmap/app.py"
+  - "--server.address=0.0.0.0"
+  - "--server.port=$DATABRICKS_APP_PORT"
+  - "--server.headless=true"
+```
+
+The manifest also sets `PROGRESSION_HEATMAP_CONFIG=config/prod.toml` and `PYTHONPATH=src` so the app can run from the repository source layout in the Databricks App runtime.
+
 ## Future Integration Plan
 
 The intended path is:

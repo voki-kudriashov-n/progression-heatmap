@@ -42,6 +42,7 @@ Current projects:
 ├── AGENTS.md
 ├── Makefile
 ├── pyproject.toml
+├── app.yml
 ├── databricks.yml
 ├── config/
 │   ├── dev.toml

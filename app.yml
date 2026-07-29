@@ -1,0 +1,15 @@
+command:
+  - "streamlit"
+  - "run"
+  - "src/progression_heatmap/app.py"
+  - "--server.address=0.0.0.0"
+  - "--server.port=$DATABRICKS_APP_PORT"
+  - "--server.headless=true"
+
+env:
+  - name: "PROGRESSION_HEATMAP_CONFIG"
+    value: "config/prod.toml"
+  - name: "PYTHONPATH"
+    value: "src"
+  - name: "STREAMLIT_BROWSER_GATHER_USAGE_STATS"
+    value: "false"
