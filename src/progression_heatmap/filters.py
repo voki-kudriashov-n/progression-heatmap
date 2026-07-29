@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 import pandas as pd
 
-type DateLike = str | date | datetime | pd.Timestamp
+DateLike = str | date | datetime | pd.Timestamp
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,4 +167,3 @@ def _to_timestamp(value: DateLike) -> pd.Timestamp:
 
 def _is_spark_frame(frame) -> bool:
     return frame.__class__.__module__.startswith("pyspark.sql")
-

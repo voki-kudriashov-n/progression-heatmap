@@ -8,6 +8,8 @@ make setup
 
 This creates `.venv` and installs runtime and development dependencies.
 
+The codebase is kept compatible with Python 3.11 because Databricks Apps currently run this project on Python 3.11. Local development may still use Python 3.12 through the default `Makefile` setting.
+
 ## Run The Dashboard
 
 Development config:

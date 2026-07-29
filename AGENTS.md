@@ -11,7 +11,7 @@ Current projects:
 
 ## Approved Technology Stack
 
-- Python 3.12
+- Python 3.11-compatible code; local development may use Python 3.12
 - Streamlit for the dashboard UI
 - Plotly for interactive heatmap rendering and zooming
 - pyspark for local CSV data loading and transformations when a local Java/Spark runtime is available
@@ -121,3 +121,4 @@ Do not create noisy documentation updates for tiny internal refactors that do no
 - Keep grouped metric calculations in `metrics.py`.
 - Keep heatmap preparation logic in `heatmap.py`.
 - Keep the dashboard practical, analytical, and easy to scan.
+- Avoid Python 3.12-only syntax because Databricks Apps may run this code on Python 3.11.

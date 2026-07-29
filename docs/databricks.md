@@ -21,12 +21,11 @@ command:
   - "streamlit"
   - "run"
   - "src/progression_heatmap/app.py"
-  - "--server.address=0.0.0.0"
-  - "--server.port=$DATABRICKS_APP_PORT"
-  - "--server.headless=true"
 ```
 
-The manifest also sets `PROGRESSION_HEATMAP_CONFIG=config/prod.toml` and `PYTHONPATH=src` so the app can run from the repository source layout in the Databricks App runtime.
+Databricks Apps automatically provide the Streamlit host and port environment variables, including `STREAMLIT_SERVER_ADDRESS=0.0.0.0`, `STREAMLIT_SERVER_PORT=8000`, and `STREAMLIT_SERVER_HEADLESS=true`. The manifest sets `PROGRESSION_HEATMAP_CONFIG=config/prod.toml` and `PYTHONPATH=src` so the app can run from the repository source layout in the Databricks App runtime.
+
+The application code is kept Python 3.11-compatible for Databricks App runtime compatibility. Avoid Python 3.12-only syntax such as PEP 695 `type` alias statements.
 
 ## Future Integration Plan
 

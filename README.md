@@ -4,7 +4,7 @@ Progression Heatmap is a small Streamlit dashboard for Match-3 game analytics. I
 
 ## Stack
 
-- Python 3.12
+- Python 3.11-compatible code; local development can use Python 3.12
 - Streamlit
 - Plotly for interactive heatmap rendering and zooming
 - pyspark, with a pandas fallback when a local Java runtime is unavailable
@@ -37,7 +37,7 @@ The production config still uses the local sample CSV. It is not a real producti
 
 ## Databricks App Smoke Test
 
-`app.yml` contains the Databricks App startup command for the Streamlit dashboard. It runs `src/progression_heatmap/app.py` with the Databricks runtime port and uses `config/prod.toml`.
+`app.yml` contains the Databricks App startup command for the Streamlit dashboard. It runs `src/progression_heatmap/app.py`; Databricks Apps provide the Streamlit host and port environment automatically, and the app uses `config/prod.toml`.
 
 ## Tests And Linting
 
