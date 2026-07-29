@@ -25,15 +25,15 @@ def test_sample_raw_csv_loads_successfully() -> None:
     )
 
 
-def test_sample_raw_csv_covers_full_2026_and_level_range() -> None:
+def test_sample_raw_csv_covers_databricks_safe_date_and_level_range() -> None:
     frame = load_raw_attempts_data(SAMPLE_DATA, engine="pandas")
 
     assert frame["level_cohort"].min() == 0
     assert frame["level_cohort"].max() == 900
     assert frame["level_cohort"].nunique() == 901
     assert frame["partition_date"].min() == pd.Timestamp("2026-01-01")
-    assert frame["partition_date"].max() == pd.Timestamp("2026-12-31")
-    assert frame["partition_date"].nunique() == 365
+    assert frame["partition_date"].max() == pd.Timestamp("2026-02-19")
+    assert frame["partition_date"].nunique() == 50
 
 
 def test_required_columns_are_validated() -> None:
@@ -57,4 +57,3 @@ def test_required_columns_are_validated() -> None:
 
     with pytest.raises(DataValidationError, match="level_cohort"):
         validate_required_columns(columns)
-

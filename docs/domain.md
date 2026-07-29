@@ -20,7 +20,7 @@ Current projects:
 - `first_attempt`: raw first-attempt flag.
 - `FW`, `CW`, `CF`, `FF`: raw indicator columns for far win, close win, close fail, and far fail.
 - `reason_seg`: source reason segment.
-- `partition_date`: date used on the heatmap X axis. The local sample data covers each day of 2026.
+- `partition_date`: date used on the heatmap X axis. The local sample data covers each day from `2026-01-01` through `2026-02-19`.
 - `level_cohort`: level cohort used on the heatmap Y axis. The local sample data covers `0..900`.
 - `value`: selected grouped metric value displayed in the heatmap cell after aggregation.
 - `metric_name`: selected metric, such as `CF`, `FW`, `attempts`, `fail_rate`, `win_rate`, or `first_attempt`.

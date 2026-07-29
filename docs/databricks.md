@@ -8,6 +8,8 @@ The current dashboard reads only:
 data/sample_heatmap_data.csv
 ```
 
+The local fixture is intentionally kept below the Databricks App deployment source-file limit so the app can be smoke-tested before real data access is configured.
+
 There are no active Databricks queries, jobs, tables, clusters, warehouses, hosts, credentials, or deployment resources in this first version.
 
 ## Future Integration Plan

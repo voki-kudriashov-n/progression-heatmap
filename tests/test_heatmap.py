@@ -28,7 +28,7 @@ def test_grouped_metric_values_return_non_empty_table_for_sample_data() -> None:
     assert heatmap_table.index.name == "level_group"
     assert heatmap_table.columns.name == "date"
     assert len(heatmap_table.index) == 21
-    assert len(heatmap_table.columns) == 365
+    assert len(heatmap_table.columns) == 50
 
 
 def test_grouped_metric_values_cover_full_sample_grid() -> None:
@@ -44,7 +44,7 @@ def test_grouped_metric_values_cover_full_sample_grid() -> None:
 
     heatmap_table = prepare_heatmap_table(metric_values)
 
-    assert heatmap_table.shape == (901, 365)
+    assert heatmap_table.shape == (901, 50)
     assert heatmap_table.notna().all().all()
 
 
@@ -119,4 +119,3 @@ def test_heatmap_preparation_rejects_duplicate_cell_values() -> None:
 
     with pytest.raises(ValueError, match="exactly one value"):
         prepare_heatmap_table(frame)
-

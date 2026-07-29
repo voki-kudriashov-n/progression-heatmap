@@ -49,7 +49,7 @@ make check
 
 - The active configs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
 - Spark SQL and Spark table source adapters exist for a future Databricks App, but no real Databricks source is configured.
-- The sample data covers `level_cohort` values `0..900` and daily `partition_date` values across 2026.
+- The sample data stays below the Databricks App source-file limit and covers `level_cohort` values `0..900` for daily `partition_date` values from `2026-01-01` through `2026-02-19`.
 - There are no real Databricks SQL queries or production connections.
 - The dashboard has no browser-based UI tests yet.
 - Local PySpark loading requires a working Java runtime; without Java, the app uses a pandas compatibility path for local development and tests.

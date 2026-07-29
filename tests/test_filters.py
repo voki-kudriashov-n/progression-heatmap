@@ -77,7 +77,7 @@ def test_raw_filter_options(sample_frame: pd.DataFrame) -> None:
     assert options.level_min == 0
     assert options.level_max == 900
     assert options.date_min.isoformat() == "2026-01-01"
-    assert options.date_max.isoformat() == "2026-12-31"
+    assert options.date_max.isoformat() == "2026-02-19"
     assert "payer" in options.payer_types
     assert "organic" in options.traffic_types
     assert "android" in options.platform_names
@@ -88,4 +88,3 @@ def test_metric_selection_requires_supported_values() -> None:
 
     assert selection.metric_name == "CF"
     assert selection.calculation_method == "relative"
-
