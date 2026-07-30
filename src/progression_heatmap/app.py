@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from progression_heatmap.config import AppConfig, load_config
-from progression_heatmap.data_sources import load_raw_attempts_from_config
+from progression_heatmap.data_sources import load_raw_attempts_from_config, resolve_data_source
 from progression_heatmap.filters import (
     MetricSelection,
     PreAggregationFilters,
@@ -36,33 +36,55 @@ def main() -> None:
     st.set_page_config(page_title=config.app_title, layout="wide")
     _apply_page_style()
 
-    filter_options = _load_filter_options(config)
+    project_key = _render_project_selector(config)
+    filter_options = _load_filter_options(config, project_key)
     pre_filters, metric_selection = _render_filters(filter_options)
-    statistics = _compute_statistics(config, pre_filters)
+    statistics = _compute_statistics(config, project_key, pre_filters)
     metric_values = select_metric_values(statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values)
 
-    if config.production_simulation:
-        st.warning("Production simulation config: local CSV only, no production connection.")
+    if config.production_simulation and resolve_data_source(config) == "csv":
+        st.warning("Local CSV source is active for this config.")
 
     _render_heatmap(heatmap_table)
 
     with st.expander("Grouped metric rows", expanded=False):
-        st.dataframe(metric_values, width="stretch", hide_index=True)
+        st.dataframe(metric_values, use_container_width=True, hide_index=True)
 
 
 @st.cache_data(show_spinner="Loading raw filter values...")
-def _load_filter_options(config: AppConfig):
-    raw_data = load_raw_attempts_from_config(config)
+def _load_filter_options(config: AppConfig, project_key: str):
+    raw_data = load_raw_attempts_from_config(config, project_key)
     return collect_raw_filter_options(raw_data)
 
 
 @st.cache_data(show_spinner="Grouping raw attempt data...")
-def _compute_statistics(config: AppConfig, pre_filters: PreAggregationFilters) -> pd.DataFrame:
-    raw_data = load_raw_attempts_from_config(config)
+def _compute_statistics(
+    config: AppConfig,
+    project_key: str,
+    pre_filters: PreAggregationFilters,
+) -> pd.DataFrame:
+    raw_data = load_raw_attempts_from_config(config, project_key)
     statistics = aggregate_statistics(raw_data, pre_filters)
     return to_pandas_frame(statistics)
+
+
+def _render_project_selector(config: AppConfig) -> str:
+    st.sidebar.header("Project")
+    if not config.projects:
+        return config.default_project
+
+    project_keys = config.project_keys
+    default_index = (
+        project_keys.index(config.default_project) if config.default_project in project_keys else 0
+    )
+    return st.sidebar.selectbox(
+        "Game",
+        project_keys,
+        index=default_index,
+        format_func=lambda key: config.project(key).display_name,
+    )
 
 
 def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelection]:
@@ -191,7 +213,7 @@ def _render_heatmap(heatmap_table: pd.DataFrame) -> None:
     )
     st.plotly_chart(
         figure,
-        width="stretch",
+        use_container_width=True,
         config={
             "displayModeBar": True,
             "displaylogo": False,

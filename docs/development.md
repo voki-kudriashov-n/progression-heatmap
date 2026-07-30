@@ -18,13 +18,13 @@ Development config:
 make run-dev
 ```
 
-Production simulation config:
+Production config locally:
 
 ```bash
 make run-prod
 ```
 
-The production simulation config still reads the local CSV fixture. It does not connect to production systems.
+The production config uses automatic source selection. On a local machine it reads the local CSV fixture. Inside Databricks Apps it uses the connected SQL warehouse.
 
 ## Test And Lint
 
@@ -53,3 +53,10 @@ PySpark requires a working Java runtime. The project keeps PySpark in the depend
 ## Data Source Boundary
 
 Runtime data access goes through `progression_heatmap.data_sources`. The current configs use `CsvRawAttemptsDataSource`, while a future Databricks App can use `SparkSqlRawAttemptsDataSource` or `SparkTableRawAttemptsDataSource`. All source adapters must return the same raw attempt columns before processing starts.
+
+`data_source = "auto"` is environment-aware:
+
+- local runtime -> CSV source
+- Databricks App runtime -> Databricks SQL warehouse source
+
+Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps map `MM` to `raw_objects_mm` and `MyM` to `raw_objects_mym`.

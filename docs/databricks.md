@@ -1,8 +1,8 @@
 # Databricks
 
-Databricks integration is prepared but not active.
+Databricks integration is active in code, but only when the dashboard runs inside Databricks Apps. Local runs keep using the CSV fixture.
 
-The current dashboard reads only:
+Local runs read:
 
 ```text
 data/sample_heatmap_data.csv
@@ -10,7 +10,7 @@ data/sample_heatmap_data.csv
 
 The local fixture is intentionally kept below the Databricks App deployment source-file limit so the app can be smoke-tested before real data access is configured.
 
-There are no active Databricks queries, jobs, tables, clusters, warehouses, hosts, credentials, or deployment resources in this first version.
+Databricks App runs use the SQL warehouse resource configured with key `sql-warehouse`.
 
 ## App Runtime
 
@@ -25,58 +25,44 @@ command:
 
 Databricks Apps automatically provide the Streamlit host and port environment variables, including `STREAMLIT_SERVER_ADDRESS=0.0.0.0`, `STREAMLIT_SERVER_PORT=8000`, and `STREAMLIT_SERVER_HEADLESS=true`. The manifest sets `PROGRESSION_HEATMAP_CONFIG=config/prod.toml` and `PYTHONPATH=src` so the app can run from the repository source layout in the Databricks App runtime.
 
+The manifest also maps the connected SQL warehouse resource into an environment variable:
+
+```yaml
+env:
+  - name: "DATABRICKS_WAREHOUSE_ID"
+    valueFrom: "sql-warehouse"
+```
+
 The application code is kept Python 3.11-compatible for Databricks App runtime compatibility. Avoid Python 3.12-only syntax such as PEP 695 `type` alias statements.
 
-## Future Integration Plan
+## Data Source Selection
 
-The intended path is:
-
-1. Keep local CSV loading as the default development path.
-2. Use `src/progression_heatmap/data_sources.py` as the only storage boundary.
-3. In a Databricks App, switch config to a Spark SQL or Spark table source that returns the required raw columns.
-4. Preserve the raw dataframe contract used by `filters.py`, `metrics.py`, and `heatmap.py`.
-5. Add environment-specific config only after the user explicitly approves real Databricks access.
-
-Future data sources may use PySpark SQL or Spark tables, but they should provide the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
-
-Example Databricks App config shape:
+Both `config/dev.toml` and `config/prod.toml` use:
 
 ```toml
-environment = "databricks"
-data_source = "spark_sql"
-spark_sql = """
-select
-  client_time,
-  user_id,
-  balance_id,
-  traffic_type,
-  payer_type,
-  failed,
-  attempt,
-  platform_name,
-  first_attempt,
-  FW,
-  CW,
-  CF,
-  FF,
-  reason_seg,
-  partition_date,
-  level_cohort
-from your_catalog.your_schema.raw_attempts
-"""
-app_title = "Match-3 Progression Heatmap"
+data_source = "auto"
+default_project = "MM"
+databricks_warehouse_id_env = "DATABRICKS_WAREHOUSE_ID"
+
+[projects.MM]
+csv_path = "data/sample_heatmap_data.csv"
+databricks_table = "raw_objects_mm"
+
+[projects.MyM]
+csv_path = "data/sample_heatmap_data.csv"
+databricks_table = "raw_objects_mym"
 ```
 
-If the source table already has the exact required columns, the lighter config can be:
+`auto` resolves to:
 
-```toml
-environment = "databricks"
-data_source = "spark_table"
-spark_table = "your_catalog.your_schema.raw_attempts"
-app_title = "Match-3 Progression Heatmap"
-```
+- `csv` outside Databricks Apps.
+- `databricks_sql` inside Databricks Apps.
 
-These examples are configuration shapes only. The repository still does not include real workspace details or production table names.
+There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
+
+The Databricks SQL source reads the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
+
+The table names are intentionally configured per project. The project selector chooses the source table; it is not implemented as a filter inside one shared table.
 
 ## Asset Bundles
 
@@ -99,6 +85,6 @@ The command may fail if the Databricks CLI is not installed or authenticated. Th
 ## Safety Expectations
 
 - Do not commit credentials, tokens, secrets, host URLs, or production workspace details.
-- Do not connect to real production Databricks unless explicitly requested.
+- Do not connect to real production Databricks from local development unless explicitly requested.
 - Do not create Databricks jobs or deployment resources unless explicitly requested.
-- Treat `config/prod.toml` as a production simulation until real access is approved.
+- Keep local CSV as the local development and test source.

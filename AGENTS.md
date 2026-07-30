@@ -16,17 +16,17 @@ Current projects:
 - Plotly for interactive heatmap rendering and zooming
 - pyspark for local CSV data loading and transformations when a local Java/Spark runtime is available
 - pandas for in-process tabular objects returned to the app and tests
+- Databricks SQL Connector and Databricks SDK for Databricks App warehouse access
 - pytest for tests
 - ruff for linting
 - pyproject.toml for Python project configuration
 - Makefile for repeatable local commands
-- Databricks CLI and Databricks Asset Bundles only as a prepared future integration layer
+- Databricks CLI and Databricks Asset Bundles as the deployment integration layer
 
 ## Disallowed Unless Explicitly Approved
 
 - React
 - FastAPI
-- real Databricks SQL queries
 - databases
 - Docker
 - cloud deployment
@@ -66,6 +66,7 @@ Current projects:
 │       └── heatmap.py
 └── tests/
     ├── test_data.py
+    ├── test_data_sources.py
     ├── test_filters.py
     └── test_heatmap.py
 ```
@@ -76,7 +77,7 @@ The Python package uses `progression_heatmap` because Python imports cannot use 
 
 - `make setup`: create `.venv` and install dependencies.
 - `make run-dev`: run the dashboard with `config/dev.toml`.
-- `make run-prod`: run the dashboard with `config/prod.toml`, which is only a production simulation.
+- `make run-prod`: run the dashboard with `config/prod.toml`.
 - `make test`: run pytest.
 - `make lint`: run ruff.
 - `make check`: run lint and tests.
@@ -105,17 +106,18 @@ Do not create noisy documentation updates for tiny internal refactors that do no
 
 ## Databricks Safety Rules
 
-- Databricks integration is prepared but inactive.
-- Do not connect to real production Databricks unless the user explicitly asks.
+- Databricks integration is active only inside Databricks Apps.
+- Do not connect to real production Databricks from local development unless the user explicitly asks.
 - Do not add credentials, tokens, host URLs, secrets, or production workspace details.
 - Do not create Databricks jobs or deployment resources without explicit approval.
-- Keep local CSV as the active data source until the user requests Databricks data access.
+- Keep local CSV as the local development and test data source.
 
 ## Design And Architecture Rules
 
 - Keep UI logic separate from data and heatmap logic.
 - Keep `app.py` focused on Streamlit layout and controls.
 - Keep runtime data access in `data_sources.py`.
+- Keep project selection as data-source selection, not as a row filter inside a shared table.
 - Keep raw schema validation and normalization in `data.py`.
 - Keep filtering logic in `filters.py`.
 - Keep grouped metric calculations in `metrics.py`.

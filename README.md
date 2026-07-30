@@ -9,6 +9,7 @@ Progression Heatmap is a small Streamlit dashboard for Match-3 game analytics. I
 - Plotly for interactive heatmap rendering and zooming
 - pyspark, with a pandas fallback when a local Java runtime is unavailable
 - pandas
+- Databricks SQL Connector and SDK for Databricks App warehouse access
 - pytest
 - ruff
 - Databricks Asset Bundles configuration prepared for later use
@@ -27,17 +28,19 @@ This creates `.venv` and installs the local package with development dependencie
 make run-dev
 ```
 
-Run the production simulation config:
+Run the production config locally:
 
 ```bash
 make run-prod
 ```
 
-The production config still uses the local sample CSV. It is not a real production connection.
+The production config uses `data_source = "auto"`. Locally it still reads the local sample CSV. Inside Databricks Apps it reads from the connected SQL warehouse.
 
 ## Databricks App Smoke Test
 
 `app.yml` contains the Databricks App startup command for the Streamlit dashboard. It runs `src/progression_heatmap/app.py`; Databricks Apps provide the Streamlit host and port environment automatically, and the app uses `config/prod.toml`.
+
+The app expects a SQL warehouse resource with key `sql-warehouse`. `app.yml` exposes it as `DATABRICKS_WAREHOUSE_ID`.
 
 ## Tests And Linting
 
@@ -51,10 +54,9 @@ make check
 
 ## Current Limitations
 
-- The active configs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
-- Spark SQL and Spark table source adapters exist for a future Databricks App, but no real Databricks source is configured.
+- Local runs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
+- Databricks App runs read project-specific tables through the connected SQL warehouse: `MM -> raw_objects_mm`, `MyM -> raw_objects_mym`.
 - The sample data stays below the Databricks App source-file limit and covers `level_cohort` values `0..900` for daily `partition_date` values from `2026-01-01` through `2026-02-19`.
-- There are no real Databricks SQL queries or production connections.
 - The dashboard has no browser-based UI tests yet.
 - Local PySpark loading requires a working Java runtime; without Java, the app uses a pandas compatibility path for local development and tests.
 
@@ -72,13 +74,13 @@ Pre-group filters:
 
 After those filters, grouped statistics are calculated by `level_cohort` and `partition_date`. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
 
-## Future Databricks Plan
+## Databricks Data Path
 
-The repository includes a minimal `databricks.yml` for future Databricks Asset Bundles work. Databricks integration is not active yet. Later versions can add a Databricks-backed data source behind the existing `data_sources.py` interface, keeping the Streamlit UI and heatmap logic stable.
+The app routes data access through `progression_heatmap.data_sources`. Configured `data_source = "auto"` resolves to:
 
-The app now routes data access through `progression_heatmap.data_sources`. For Databricks App migration, keep the processing modules unchanged and switch config to either:
+- `csv` outside Databricks Apps.
+- `databricks_sql` inside Databricks Apps.
 
-- `data_source = "spark_sql"` with a PySpark SQL query returning the required raw columns.
-- `data_source = "spark_table"` with a Spark table name that already exposes the required raw columns.
+Project selection chooses a source entry before data loading. It is not a filter inside a shared table.
 
 Do not commit Databricks credentials, tokens, secrets, host URLs, or production workspace details.

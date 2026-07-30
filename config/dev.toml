@@ -1,6 +1,16 @@
 environment = "dev"
-data_source = "csv"
-data_path = "data/sample_heatmap_data.csv"
+data_source = "auto"
+default_project = "MM"
+databricks_warehouse_id_env = "DATABRICKS_WAREHOUSE_ID"
 app_title = "Match-3 Progression Heatmap"
 production_simulation = false
 
+[projects.MM]
+display_name = "MM"
+csv_path = "data/sample_heatmap_data.csv"
+databricks_table = "raw_objects_mm"
+
+[projects.MyM]
+display_name = "MyM"
+csv_path = "data/sample_heatmap_data.csv"
+databricks_table = "raw_objects_mym"
