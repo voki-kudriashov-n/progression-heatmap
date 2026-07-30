@@ -55,7 +55,7 @@ make check
 ## Current Limitations
 
 - Local runs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
-- Databricks App runs read project-specific tables through the connected SQL warehouse: `MM -> raw_objects_mm`, `MyM -> raw_objects_mym`.
+- Databricks App runs read project-specific tables through the connected SQL warehouse: `MM -> game_data_prod.analytics_voki.raw_objects_mm`, `MyM -> game_data_prod.analytics_voki.raw_objects_mym`.
 - The sample data stays below the Databricks App source-file limit and covers `level_cohort` values `0..900` for daily `partition_date` values from `2026-01-01` through `2026-02-19`.
 - The dashboard has no browser-based UI tests yet.
 - Local PySpark loading requires a working Java runtime; without Java, the app uses a pandas compatibility path for local development and tests.

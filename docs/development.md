@@ -59,4 +59,4 @@ Runtime data access goes through `progression_heatmap.data_sources`. The current
 - local runtime -> CSV source
 - Databricks App runtime -> Databricks SQL warehouse source
 
-Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps map `MM` to `raw_objects_mm` and `MyM` to `raw_objects_mym`.
+Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps map `MM` to `game_data_prod.analytics_voki.raw_objects_mm` and `MyM` to `game_data_prod.analytics_voki.raw_objects_mym`.

@@ -6,6 +6,7 @@ from progression_heatmap.config import AppConfig, ProjectConfig, load_config
 from progression_heatmap.data import RAW_REQUIRED_COLUMNS
 from progression_heatmap.data_sources import (
     CsvRawAttemptsDataSource,
+    DatabricksDataAccessError,
     DatabricksSqlWarehouseRawAttemptsDataSource,
     SparkSqlRawAttemptsDataSource,
     SparkTableRawAttemptsDataSource,
@@ -17,6 +18,8 @@ from progression_heatmap.filters import MetricSelection, PreAggregationFilters
 from progression_heatmap.metrics import aggregate_statistics, select_metric_values
 
 SAMPLE_DATA = Path(__file__).resolve().parents[1] / "data" / "sample_heatmap_data.csv"
+MM_TABLE = "game_data_prod.analytics_voki.raw_objects_mm"
+MYM_TABLE = "game_data_prod.analytics_voki.raw_objects_mym"
 
 
 class FakeSparkSession:
@@ -133,7 +136,7 @@ def test_auto_data_source_uses_databricks_sql_inside_databricks(monkeypatch) -> 
 
     assert resolve_data_source(config) == "databricks_sql"
     assert isinstance(source, DatabricksSqlWarehouseRawAttemptsDataSource)
-    assert source.table_name == "raw_objects_mym"
+    assert source.table_name == MYM_TABLE
     assert source.warehouse_id == "warehouse-123"
 
 
@@ -163,8 +166,8 @@ def test_load_config_supports_project_level_sources() -> None:
     assert config.default_project == "MM"
     assert config.project_keys == ("MM", "MyM")
     assert config.project("MM").csv_path == SAMPLE_DATA
-    assert config.project("MM").databricks_table == "raw_objects_mm"
-    assert config.project("MyM").databricks_table == "raw_objects_mym"
+    assert config.project("MM").databricks_table == MM_TABLE
+    assert config.project("MyM").databricks_table == MYM_TABLE
 
 
 def test_spark_sql_data_source_uses_query_and_raw_contract() -> None:
@@ -195,7 +198,7 @@ def test_spark_table_data_source_uses_table_name_and_raw_contract() -> None:
 def test_databricks_sql_data_source_uses_warehouse_and_raw_contract() -> None:
     connection_factory = FakeSqlConnectionFactory(_raw_attempts_frame())
     source = DatabricksSqlWarehouseRawAttemptsDataSource(
-        table_name="raw_objects_mm",
+        table_name=MM_TABLE,
         warehouse_id="warehouse-123",
         host="https://example.cloud.databricks.com",
         client_id="client-id",
@@ -208,9 +211,30 @@ def test_databricks_sql_data_source_uses_warehouse_and_raw_contract() -> None:
 
     assert connection_factory.kwargs["server_hostname"] == "example.cloud.databricks.com"
     assert connection_factory.kwargs["http_path"] == "/sql/1.0/warehouses/warehouse-123"
-    assert "from raw_objects_mm" in connection_factory.query
+    assert f"from {MM_TABLE}" in connection_factory.query
     assert list(frame.columns) == list(RAW_REQUIRED_COLUMNS)
     assert "extra_column" not in frame.columns
+
+
+def test_databricks_sql_data_source_wraps_permission_errors() -> None:
+    source = DatabricksSqlWarehouseRawAttemptsDataSource(
+        table_name=MM_TABLE,
+        warehouse_id="warehouse-123",
+        host="https://example.cloud.databricks.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        connection_factory=lambda **kwargs: PermissionDeniedSqlConnection(),
+        credential_provider_factory=lambda: object(),
+    )
+
+    try:
+        source.load_raw_attempts()
+    except DatabricksDataAccessError as exc:
+        assert exc.table_name == MM_TABLE
+        assert exc.is_permission_error
+        assert "USE CATALOG" in exc.original_message
+    else:
+        raise AssertionError("Expected DatabricksDataAccessError")
 
 
 def test_local_project_sources_feed_metric_pipeline() -> None:
@@ -226,6 +250,38 @@ def test_local_project_sources_feed_metric_pipeline() -> None:
         assert not statistics.empty
 
 
+class PermissionDeniedSqlConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    def cursor(self):
+        return PermissionDeniedSqlCursor()
+
+
+class PermissionDeniedSqlCursor:
+    def __init__(self) -> None:
+        self.description = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    def execute(self, query: str) -> None:
+        msg = (
+            "[INSUFFICIENT_PERMISSIONS] Insufficient privileges: "
+            "User does not have USE CATALOG on Catalog 'game_data_prod'."
+        )
+        raise RuntimeError(msg)
+
+    def fetchall(self):
+        return []
+
+
 def _project_config(data_source: str) -> AppConfig:
     return AppConfig(
         environment="test",
@@ -237,13 +293,13 @@ def _project_config(data_source: str) -> AppConfig:
                 key="MM",
                 display_name="MM",
                 csv_path=SAMPLE_DATA,
-                databricks_table="raw_objects_mm",
+                databricks_table=MM_TABLE,
             ),
             ProjectConfig(
                 key="MyM",
                 display_name="MyM",
                 csv_path=SAMPLE_DATA,
-                databricks_table="raw_objects_mym",
+                databricks_table=MYM_TABLE,
             ),
         ),
         default_project="MM",

@@ -11,7 +11,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from progression_heatmap.config import AppConfig, load_config
-from progression_heatmap.data_sources import load_raw_attempts_from_config, resolve_data_source
+from progression_heatmap.data_sources import (
+    DatabricksDataAccessError,
+    load_raw_attempts_from_config,
+    resolve_data_source,
+)
 from progression_heatmap.filters import (
     MetricSelection,
     PreAggregationFilters,
@@ -37,9 +41,14 @@ def main() -> None:
     _apply_page_style()
 
     project_key = _render_project_selector(config)
-    filter_options = _load_filter_options(config, project_key)
-    pre_filters, metric_selection = _render_filters(filter_options)
-    statistics = _compute_statistics(config, project_key, pre_filters)
+    try:
+        filter_options = _load_filter_options(config, project_key)
+        pre_filters, metric_selection = _render_filters(filter_options)
+        statistics = _compute_statistics(config, project_key, pre_filters)
+    except DatabricksDataAccessError as exc:
+        _render_databricks_data_access_error(exc)
+        return
+
     metric_values = select_metric_values(statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values)
@@ -85,6 +94,21 @@ def _render_project_selector(config: AppConfig) -> str:
         index=default_index,
         format_func=lambda key: config.project(key).display_name,
     )
+
+
+def _render_databricks_data_access_error(error: DatabricksDataAccessError) -> None:
+    st.error("Databricks SQL source is not accessible to this app.")
+    st.write(
+        "The app runs as its own Databricks service principal. Notebook access with "
+        "your user does not automatically grant this app access to Unity Catalog data."
+    )
+    if error.is_permission_error:
+        st.info(
+            "Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and `SELECT` "
+            f"for `{error.table_name}`. The SQL warehouse resource also needs `Can use`."
+        )
+    with st.expander("Databricks error", expanded=False):
+        st.code(f"{error.original_error_class}: {error.original_message}")
 
 
 def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelection]:

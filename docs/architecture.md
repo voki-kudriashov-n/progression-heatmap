@@ -30,7 +30,7 @@ The local source is `data/sample_heatmap_data.csv`. It mirrors the raw source ta
 
 `data_sources.py` is the boundary between storage and analytics. CSV, Databricks SQL warehouse, Spark SQL, and Spark table adapters all return the same raw attempts dataframe contract. `filters.py`, `metrics.py`, and `heatmap.py` only depend on that contract.
 
-Project selection happens before data loading. `MM` and `MyM` select different configured source entries. Locally both projects point to the CSV fixture for repeatable tests. In Databricks Apps, `MM` reads `raw_objects_mm` and `MyM` reads `raw_objects_mym` through the configured SQL warehouse resource.
+Project selection happens before data loading. `MM` and `MyM` select different configured source entries. Locally both projects point to the CSV fixture for repeatable tests. In Databricks Apps, `MM` reads `game_data_prod.analytics_voki.raw_objects_mm` and `MyM` reads `game_data_prod.analytics_voki.raw_objects_mym` through the configured SQL warehouse resource.
 
 The `auto` data source is deterministic, not a fallback chain. Outside Databricks Apps it resolves to CSV. Inside Databricks Apps it resolves to Databricks SQL warehouse and raises an explicit error if required App environment variables are missing.
 

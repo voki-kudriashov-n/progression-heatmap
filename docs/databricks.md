@@ -46,11 +46,11 @@ databricks_warehouse_id_env = "DATABRICKS_WAREHOUSE_ID"
 
 [projects.MM]
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "raw_objects_mm"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mm"
 
 [projects.MyM]
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "raw_objects_mym"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 ```
 
 `auto` resolves to:
@@ -60,9 +60,38 @@ databricks_table = "raw_objects_mym"
 
 There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
 
-The Databricks SQL source reads the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
+The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
 
 The table names are intentionally configured per project. The project selector chooses the source table; it is not implemented as a filter inside one shared table.
+
+`notebooks/source update.ipynb` writes the app-facing raw tables with `saveAsTable`:
+
+- `game_data_prod.analytics_voki.raw_objects_mm`
+- `game_data_prod.analytics_voki.raw_objects_mym`
+
+When the notebook runs in test-users mode, it writes separate `_test_users` tables instead of overwriting the app-facing tables.
+
+## Unity Catalog Permissions
+
+Databricks Apps query data as the app's dedicated service principal. Access from a notebook usually uses the notebook user's identity or a different compute identity, so notebook write access does not automatically grant the app read access.
+
+The app service principal needs:
+
+- `Can use` on the connected SQL warehouse resource.
+- `USE CATALOG` on the parent catalog.
+- `USE SCHEMA` on the parent schema.
+- `SELECT` on `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
+
+Example grants:
+
+```sql
+GRANT USE CATALOG ON CATALOG game_data_prod TO `<app-service-principal>`;
+GRANT USE SCHEMA ON SCHEMA game_data_prod.<schema_name> TO `<app-service-principal>`;
+GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm TO `<app-service-principal>`;
+GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mym TO `<app-service-principal>`;
+```
+
+Replace `<app-service-principal>` with the service principal shown on the Databricks App Authorization tab.
 
 ## Asset Bundles
 

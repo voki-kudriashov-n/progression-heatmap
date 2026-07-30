@@ -29,6 +29,37 @@ _TABLE_IDENTIFIER_PATTERN = re.compile(
 )
 
 
+class DataSourceError(RuntimeError):
+    """Raised when a configured data source cannot return raw attempt rows."""
+
+
+class DatabricksDataAccessError(DataSourceError):
+    """Raised when Databricks SQL cannot read the configured source table."""
+
+    def __init__(self, table_name: str, original_error: Exception) -> None:
+        self.table_name = table_name
+        self.original_error_class = original_error.__class__.__name__
+        self.original_message = str(original_error)
+        super().__init__(
+            f"Databricks SQL could not read table {table_name!r}: "
+            f"{self.original_error_class}: {self.original_message}"
+        )
+
+    @property
+    def is_permission_error(self) -> bool:
+        """Return whether the original Databricks error looks permission-related."""
+
+        permission_markers = (
+            "INSUFFICIENT_PERMISSIONS",
+            "USE CATALOG",
+            "USE SCHEMA",
+            "SELECT",
+            "PERMISSION_DENIED",
+            "privileges",
+        )
+        return any(marker in self.original_message for marker in permission_markers)
+
+
 class RawAttemptsDataSource(Protocol):
     """Loads raw attempt-level rows for the analytics pipeline."""
 
@@ -99,15 +130,20 @@ class DatabricksSqlWarehouseRawAttemptsDataSource:
         credential_provider_factory = (
             self.credential_provider_factory or self._credential_provider
         )
-        with connection_factory(
-            server_hostname=_server_hostname(self.host),
-            http_path=_warehouse_http_path(self.warehouse_id),
-            credentials_provider=credential_provider_factory,
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(query)
-                rows = cursor.fetchall()
-                columns = [_description_column_name(column) for column in cursor.description]
+        try:
+            with connection_factory(
+                server_hostname=_server_hostname(self.host),
+                http_path=_warehouse_http_path(self.warehouse_id),
+                credentials_provider=credential_provider_factory,
+            ) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(query)
+                    rows = cursor.fetchall()
+                    columns = [
+                        _description_column_name(column) for column in cursor.description
+                    ]
+        except Exception as exc:
+            raise DatabricksDataAccessError(self.table_name, exc) from exc
 
         return select_raw_attempt_columns(pd.DataFrame(rows, columns=columns))
 
