@@ -7,7 +7,7 @@ Current projects:
 - MyM: Mystery Matters
 - MM: Manor Matters
 
-Project selection chooses the underlying raw data source. In Databricks Apps, `MM` reads `game_data_prod.analytics_voki.raw_objects_mm` and `MyM` reads `game_data_prod.analytics_voki.raw_objects_mym`; locally both projects use the CSV fixture for repeatable tests.
+Project selection chooses the underlying raw data source. In Databricks Apps, each project reads its configured Unity Catalog table; the current MM smoke-test config reads `game_data_prod.analytics_voki.raw_objects_mm_test_users`. Locally both projects use the CSV fixture for repeatable tests.
 
 ## Fields
 

@@ -37,7 +37,7 @@ The application code is kept Python 3.11-compatible for Databricks App runtime c
 
 ## Data Source Selection
 
-Both `config/dev.toml` and `config/prod.toml` use:
+`config/prod.toml` uses the Databricks App smoke-test source:
 
 ```toml
 data_source = "auto"
@@ -46,12 +46,14 @@ databricks_warehouse_id_env = "DATABRICKS_WAREHOUSE_ID"
 
 [projects.MM]
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "game_data_prod.analytics_voki.raw_objects_mm"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 
 [projects.MyM]
 csv_path = "data/sample_heatmap_data.csv"
 databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 ```
+
+`config/prod.toml` currently points MM to `game_data_prod.analytics_voki.raw_objects_mm_test_users` for Databricks App smoke testing. Switch it back to `game_data_prod.analytics_voki.raw_objects_mm` after the app startup and SQL warehouse path are verified.
 
 `auto` resolves to:
 
@@ -59,6 +61,10 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 - `databricks_sql` inside Databricks Apps.
 
 There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
+
+In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds and distinct filter values are collected with one SQL warehouse query, grouped metric statistics are pushed down to a second query after the user selects filters, and only compact result sets are returned to pandas for rendering.
+
+The sidebar shows a small Diagnostics panel with the resolved source, project, table, and current loading stage. The app also writes INFO logs to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
 The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
 
@@ -69,7 +75,7 @@ The table names are intentionally configured per project. The project selector c
 - `game_data_prod.analytics_voki.raw_objects_mm`
 - `game_data_prod.analytics_voki.raw_objects_mym`
 
-When the notebook runs in test-users mode, it writes separate `_test_users` tables instead of overwriting the app-facing tables.
+When the notebook runs in test-users mode, it writes separate `_test_users` tables instead of overwriting the app-facing tables. The current MM App smoke test reads `game_data_prod.analytics_voki.raw_objects_mm_test_users`.
 
 ## Unity Catalog Permissions
 
@@ -80,13 +86,14 @@ The app service principal needs:
 - `Can use` on the connected SQL warehouse resource.
 - `USE CATALOG` on the parent catalog.
 - `USE SCHEMA` on the parent schema.
-- `SELECT` on `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
+- `SELECT` on the configured project tables. For the current MM smoke test that means `game_data_prod.analytics_voki.raw_objects_mm_test_users`; for full data it means `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
 
 Example grants:
 
 ```sql
 GRANT USE CATALOG ON CATALOG game_data_prod TO `<app-service-principal>`;
 GRANT USE SCHEMA ON SCHEMA game_data_prod.<schema_name> TO `<app-service-principal>`;
+GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm_test_users TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mym TO `<app-service-principal>`;
 ```

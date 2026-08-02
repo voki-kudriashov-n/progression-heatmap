@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
+from time import perf_counter
 from typing import Any
 
 import pandas as pd
@@ -13,17 +15,13 @@ import streamlit as st
 from progression_heatmap.config import AppConfig, load_config
 from progression_heatmap.data_sources import (
     DatabricksDataAccessError,
-    load_raw_attempts_from_config,
+    aggregate_statistics_from_config,
+    collect_filter_options_from_config,
     resolve_data_source,
 )
-from progression_heatmap.filters import (
-    MetricSelection,
-    PreAggregationFilters,
-    collect_raw_filter_options,
-)
+from progression_heatmap.filters import MetricSelection, PreAggregationFilters
 from progression_heatmap.heatmap import prepare_heatmap_table
 from progression_heatmap.metrics import (
-    aggregate_statistics,
     calculation_methods_for_metric,
     metric_names,
     select_metric_values,
@@ -33,25 +31,76 @@ from progression_heatmap.metrics import (
 MIN_HEATMAP_HEIGHT = 560
 MAX_HEATMAP_HEIGHT = 980
 HEATMAP_ROW_HEIGHT = 9
+LOGGER = logging.getLogger(__name__)
 
 
 def main() -> None:
-    config = load_config(os.environ.get("PROGRESSION_HEATMAP_CONFIG"))
+    _configure_logging()
+    config_path = os.environ.get("PROGRESSION_HEATMAP_CONFIG")
+    LOGGER.info("app.start config_path=%s", config_path or "<default>")
+    config = load_config(config_path)
     st.set_page_config(page_title=config.app_title, layout="wide")
     _apply_page_style()
 
     project_key = _render_project_selector(config)
+    data_source = resolve_data_source(config)
+    diagnostics = _render_runtime_diagnostics(config, project_key, data_source)
+    LOGGER.info(
+        "app.config.loaded environment=%s source=%s project=%s table=%s",
+        config.environment,
+        data_source,
+        project_key,
+        _configured_databricks_table(config, project_key),
+    )
     try:
+        filter_started_at = perf_counter()
+        _set_runtime_status(diagnostics, "Stage: loading filter options", filter_started_at)
         filter_options = _load_filter_options(config, project_key)
+        _set_runtime_status(
+            diagnostics,
+            (
+                "Stage: filter options loaded "
+                f"levels={filter_options.level_min}-{filter_options.level_max} "
+                f"dates={filter_options.date_min}..{filter_options.date_max}"
+            ),
+            filter_started_at,
+        )
         pre_filters, metric_selection = _render_filters(filter_options)
+        statistics_started_at = perf_counter()
+        _set_runtime_status(
+            diagnostics,
+            (
+                "Stage: grouping metric rows "
+                f"metric={metric_selection.metric_name}/{metric_selection.calculation_method}"
+            ),
+            statistics_started_at,
+        )
         statistics = _compute_statistics(config, project_key, pre_filters)
+        _set_runtime_status(
+            diagnostics,
+            f"Stage: metric rows loaded rows={len(statistics)}",
+            statistics_started_at,
+        )
     except DatabricksDataAccessError as exc:
+        _set_runtime_status(diagnostics, f"Stage: Databricks error table={exc.table_name}")
         _render_databricks_data_access_error(exc)
+        return
+    except Exception as exc:
+        LOGGER.exception("app.error project=%s source=%s", project_key, data_source)
+        _set_runtime_status(diagnostics, f"Stage: unexpected error {exc.__class__.__name__}")
+        _render_unexpected_error(exc)
         return
 
     metric_values = select_metric_values(statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values)
+    LOGGER.info(
+        "app.render_heatmap.ready project=%s metric_rows=%s heatmap_rows=%s heatmap_columns=%s",
+        project_key,
+        len(metric_values),
+        len(heatmap_table.index),
+        len(heatmap_table.columns),
+    )
 
     if config.production_simulation and resolve_data_source(config) == "csv":
         st.warning("Local CSV source is active for this config.")
@@ -64,8 +113,31 @@ def main() -> None:
 
 @st.cache_data(show_spinner="Loading raw filter values...")
 def _load_filter_options(config: AppConfig, project_key: str):
-    raw_data = load_raw_attempts_from_config(config, project_key)
-    return collect_raw_filter_options(raw_data)
+    started_at = perf_counter()
+    source = resolve_data_source(config)
+    LOGGER.info(
+        "app.filter_options.start source=%s project=%s table=%s",
+        source,
+        project_key,
+        _configured_databricks_table(config, project_key),
+    )
+    try:
+        options = collect_filter_options_from_config(config, project_key)
+    except Exception:
+        LOGGER.exception(
+            "app.filter_options.error source=%s project=%s elapsed_seconds=%.3f",
+            source,
+            project_key,
+            perf_counter() - started_at,
+        )
+        raise
+    LOGGER.info(
+        "app.filter_options.done source=%s project=%s elapsed_seconds=%.3f",
+        source,
+        project_key,
+        perf_counter() - started_at,
+    )
+    return options
 
 
 @st.cache_data(show_spinner="Grouping raw attempt data...")
@@ -74,9 +146,34 @@ def _compute_statistics(
     project_key: str,
     pre_filters: PreAggregationFilters,
 ) -> pd.DataFrame:
-    raw_data = load_raw_attempts_from_config(config, project_key)
-    statistics = aggregate_statistics(raw_data, pre_filters)
-    return to_pandas_frame(statistics)
+    started_at = perf_counter()
+    source = resolve_data_source(config)
+    LOGGER.info(
+        "app.statistics.start source=%s project=%s table=%s filters=%s",
+        source,
+        project_key,
+        _configured_databricks_table(config, project_key),
+        pre_filters,
+    )
+    try:
+        statistics = aggregate_statistics_from_config(config, project_key, pre_filters)
+        statistics_frame = to_pandas_frame(statistics)
+    except Exception:
+        LOGGER.exception(
+            "app.statistics.error source=%s project=%s elapsed_seconds=%.3f",
+            source,
+            project_key,
+            perf_counter() - started_at,
+        )
+        raise
+    LOGGER.info(
+        "app.statistics.done source=%s project=%s rows=%s elapsed_seconds=%.3f",
+        source,
+        project_key,
+        len(statistics_frame),
+        perf_counter() - started_at,
+    )
+    return statistics_frame
 
 
 def _render_project_selector(config: AppConfig) -> str:
@@ -96,12 +193,72 @@ def _render_project_selector(config: AppConfig) -> str:
     )
 
 
+def _render_runtime_diagnostics(config: AppConfig, project_key: str, data_source: str):
+    with st.sidebar.expander("Diagnostics", expanded=data_source == "databricks_sql"):
+        st.caption(f"Source: `{data_source}`")
+        st.caption(f"Project: `{project_key}`")
+        table_name = _configured_databricks_table(config, project_key)
+        if table_name is not None:
+            st.caption(f"Table: `{table_name}`")
+        st.caption(f"Uses Databricks SQL: `{data_source == 'databricks_sql'}`")
+        return st.empty()
+
+
+def _set_runtime_status(status_slot, message: str, started_at: float | None = None) -> None:
+    if started_at is None:
+        status_slot.info(message)
+        return
+    status_slot.info(f"{message}\n\nElapsed: `{perf_counter() - started_at:.1f}s`")
+
+
+def _configured_databricks_table(config: AppConfig, project_key: str) -> str | None:
+    if not config.projects:
+        return None
+    return config.project(project_key).databricks_table
+
+
+def _configure_logging() -> None:
+    raw_level = os.environ.get("PROGRESSION_HEATMAP_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, raw_level, logging.INFO)
+    package_logger = logging.getLogger("progression_heatmap")
+    package_logger.setLevel(level)
+    package_logger.propagate = False
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    existing_handler = None
+    for handler in package_logger.handlers:
+        if getattr(handler, "_progression_heatmap_handler", False):
+            existing_handler = handler
+            break
+
+    if existing_handler is None:
+        handler = logging.StreamHandler()
+        handler._progression_heatmap_handler = True
+        handler.setFormatter(formatter)
+        package_logger.addHandler(handler)
+    else:
+        existing_handler.setFormatter(formatter)
+
+    for handler in package_logger.handlers:
+        handler.setLevel(level)
+
+
 def _render_databricks_data_access_error(error: DatabricksDataAccessError) -> None:
     st.error("Databricks SQL source is not accessible to this app.")
     st.write(
         "The app runs as its own Databricks service principal. Notebook access with "
         "your user does not automatically grant this app access to Unity Catalog data."
     )
+    if error.is_gateway_error:
+        st.info(
+            "The SQL connector received a 502/Bad Gateway response. Check App logs for "
+            "`databricks_sql.*.connect.start`, `execute.start`, and `fetch.start`. "
+            "Pay special attention to `host_kind`, `http_path`, and the last marker before "
+            "the error."
+        )
     if error.is_permission_error:
         st.info(
             "Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and `SELECT` "
@@ -109,6 +266,13 @@ def _render_databricks_data_access_error(error: DatabricksDataAccessError) -> No
         )
     with st.expander("Databricks error", expanded=False):
         st.code(f"{error.original_error_class}: {error.original_message}")
+
+
+def _render_unexpected_error(error: Exception) -> None:
+    st.error("The dashboard hit an unexpected error while loading data.")
+    st.write("Check the Databricks App logs for the matching `app.error` traceback.")
+    with st.expander("Error details", expanded=False):
+        st.code(f"{error.__class__.__name__}: {error}")
 
 
 def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelection]:

@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -10,7 +11,8 @@ from progression_heatmap.data_sources import (
     DatabricksSqlWarehouseRawAttemptsDataSource,
     SparkSqlRawAttemptsDataSource,
     SparkTableRawAttemptsDataSource,
-    load_raw_attempts_from_config,
+    aggregate_statistics_from_config,
+    collect_filter_options_from_config,
     raw_attempts_data_source_from_config,
     resolve_data_source,
 )
@@ -19,6 +21,7 @@ from progression_heatmap.metrics import aggregate_statistics, select_metric_valu
 
 SAMPLE_DATA = Path(__file__).resolve().parents[1] / "data" / "sample_heatmap_data.csv"
 MM_TABLE = "game_data_prod.analytics_voki.raw_objects_mm"
+MM_TEST_USERS_TABLE = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 MYM_TABLE = "game_data_prod.analytics_voki.raw_objects_mym"
 
 
@@ -78,6 +81,52 @@ class FakeSqlCursor:
 
     def fetchall(self):
         return list(self.factory.frame.itertuples(index=False, name=None))
+
+
+class QueuedSqlConnectionFactory:
+    def __init__(self, responses: list[pd.DataFrame]) -> None:
+        self.responses = responses
+        self.kwargs = {}
+        self.queries: list[str] = []
+
+    def __call__(self, **kwargs):
+        self.kwargs = kwargs
+        return QueuedSqlConnection(self)
+
+
+class QueuedSqlConnection:
+    def __init__(self, factory: QueuedSqlConnectionFactory) -> None:
+        self.factory = factory
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    def cursor(self):
+        return QueuedSqlCursor(self.factory)
+
+
+class QueuedSqlCursor:
+    def __init__(self, factory: QueuedSqlConnectionFactory) -> None:
+        self.factory = factory
+        self.frame = pd.DataFrame()
+        self.description = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    def execute(self, query: str) -> None:
+        self.factory.queries.append(query)
+        self.frame = self.factory.responses.pop(0)
+        self.description = [(column,) for column in self.frame.columns]
+
+    def fetchall(self):
+        return list(self.frame.itertuples(index=False, name=None))
 
 
 def test_csv_data_source_feeds_metric_pipeline() -> None:
@@ -170,6 +219,13 @@ def test_load_config_supports_project_level_sources() -> None:
     assert config.project("MyM").databricks_table == MYM_TABLE
 
 
+def test_prod_config_uses_mm_test_users_table_for_app_smoke() -> None:
+    config = load_config(Path(__file__).resolve().parents[1] / "config" / "prod.toml")
+
+    assert config.project("MM").databricks_table == MM_TEST_USERS_TABLE
+    assert config.project("MyM").databricks_table == MYM_TABLE
+
+
 def test_spark_sql_data_source_uses_query_and_raw_contract() -> None:
     spark = FakeSparkSession(_raw_attempts_frame())
     source = SparkSqlRawAttemptsDataSource(
@@ -216,6 +272,23 @@ def test_databricks_sql_data_source_uses_warehouse_and_raw_contract() -> None:
     assert "extra_column" not in frame.columns
 
 
+def test_databricks_sql_data_source_accepts_connected_resource_http_path() -> None:
+    connection_factory = FakeSqlConnectionFactory(_raw_attempts_frame())
+    source = DatabricksSqlWarehouseRawAttemptsDataSource(
+        table_name=MM_TABLE,
+        warehouse_id="/sql/1.0/warehouses/warehouse-123",
+        host="https://example.cloud.databricks.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        connection_factory=connection_factory,
+        credential_provider_factory=lambda: object(),
+    )
+
+    source.load_raw_attempts()
+
+    assert connection_factory.kwargs["http_path"] == "/sql/1.0/warehouses/warehouse-123"
+
+
 def test_databricks_sql_data_source_wraps_permission_errors() -> None:
     source = DatabricksSqlWarehouseRawAttemptsDataSource(
         table_name=MM_TABLE,
@@ -237,16 +310,95 @@ def test_databricks_sql_data_source_wraps_permission_errors() -> None:
         raise AssertionError("Expected DatabricksDataAccessError")
 
 
+def test_databricks_data_access_error_detects_gateway_errors() -> None:
+    error = DatabricksDataAccessError(
+        MM_TABLE,
+        RuntimeError(
+            "Connection failed with status 502, and response "
+            "'Databricks App - 502 Bad Gateway'"
+        ),
+    )
+
+    assert error.is_gateway_error
+
+
+def test_databricks_sql_filter_options_use_pushdown_queries() -> None:
+    connection_factory = QueuedSqlConnectionFactory(
+        [
+            pd.DataFrame(
+                {
+                    "level_min": [0],
+                    "level_max": [900],
+                    "date_min": [date(2026, 1, 1)],
+                    "date_max": [date(2026, 2, 19)],
+                    "payer_types": ['["nonpayer","payer"]'],
+                    "traffic_types": ['["organic","paid"]'],
+                    "platform_names": ['["android","ios"]'],
+                }
+            ),
+        ]
+    )
+    source = _databricks_source(connection_factory)
+
+    options = source.collect_filter_options()
+
+    assert options.level_min == 0
+    assert options.level_max == 900
+    assert options.date_min == date(2026, 1, 1)
+    assert options.date_max == date(2026, 2, 19)
+    assert options.payer_types == ("nonpayer", "payer")
+    assert options.traffic_types == ("organic", "paid")
+    assert options.platform_names == ("android", "ios")
+    assert len(connection_factory.queries) == 1
+    query = connection_factory.queries[0]
+    assert "min(cast(level_cohort as int))" in query
+    assert "to_json(sort_array(collect_set(cast(payer_type as string))))" in query
+    assert all("client_time" not in query for query in connection_factory.queries)
+
+
+def test_databricks_sql_aggregate_statistics_pushes_filters_to_warehouse() -> None:
+    connection_factory = QueuedSqlConnectionFactory([_statistics_response_frame()])
+    source = _databricks_source(connection_factory)
+    criteria = PreAggregationFilters(
+        level_min=100,
+        level_max=200,
+        start_date=date(2026, 1, 10),
+        end_date=date(2026, 1, 20),
+        payer_types=("payer", "payer's cohort"),
+        traffic_types=("organic",),
+        platform_names=("ios",),
+    )
+
+    frame = source.aggregate_statistics(criteria)
+
+    assert frame.loc[0, "level_group"] == 100
+    assert frame.loc[0, "fail_rate_relative"] == 25.0
+    assert len(connection_factory.queries) == 1
+    query = connection_factory.queries[0]
+    assert f"from {MM_TABLE}" in query
+    assert "group by level_cohort, partition_date" in query
+    assert "cast(level_cohort as int) >= 100" in query
+    assert "cast(level_cohort as int) <= 200" in query
+    assert "cast(partition_date as date) >= date '2026-01-10'" in query
+    assert "cast(partition_date as date) <= date '2026-01-20'" in query
+    assert "cast(payer_type as string) in ('payer', 'payer''s cohort')" in query
+    assert "cast(traffic_type as string) in ('organic')" in query
+    assert "cast(platform_name as string) in ('ios')" in query
+    assert "client_time" not in query
+
+
 def test_local_project_sources_feed_metric_pipeline() -> None:
     config = load_config(Path(__file__).resolve().parents[1] / "config" / "dev.toml")
 
     for project_key in config.project_keys:
-        frame = load_raw_attempts_from_config(config, project_key)
-        statistics = aggregate_statistics(
-            frame,
+        filter_options = collect_filter_options_from_config(config, project_key)
+        statistics = aggregate_statistics_from_config(
+            config,
+            project_key,
             PreAggregationFilters(level_min=0, level_max=2),
         )
 
+        assert filter_options.level_min == 0
         assert not statistics.empty
 
 
@@ -306,6 +458,20 @@ def _project_config(data_source: str) -> AppConfig:
     )
 
 
+def _databricks_source(
+    connection_factory: QueuedSqlConnectionFactory | FakeSqlConnectionFactory,
+) -> DatabricksSqlWarehouseRawAttemptsDataSource:
+    return DatabricksSqlWarehouseRawAttemptsDataSource(
+        table_name=MM_TABLE,
+        warehouse_id="warehouse-123",
+        host="https://example.cloud.databricks.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        connection_factory=connection_factory,
+        credential_provider_factory=lambda: object(),
+    )
+
+
 def _raw_attempts_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -326,5 +492,33 @@ def _raw_attempts_frame() -> pd.DataFrame:
             "partition_date": ["2026-01-01"],
             "level_cohort": [10],
             "extra_column": ["ignored"],
+        }
+    )
+
+
+def _statistics_response_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "level_group": [100],
+            "date": [date(2026, 1, 10)],
+            "FW_absolute": [1.0],
+            "CW_absolute": [2.0],
+            "CF_absolute": [0.0],
+            "FF_absolute": [1.0],
+            "attempts_absolute": [4.0],
+            "failed_absolute": [1.0],
+            "attempt_average": [1.5],
+            "first_attempt_absolute": [2.0],
+            "FW_relative": [25.0],
+            "CW_relative": [50.0],
+            "CF_relative": [0.0],
+            "FF_relative": [25.0],
+            "FW_partial_relative": [33.3333333333],
+            "CW_partial_relative": [66.6666666667],
+            "FF_partial_relative": [100.0],
+            "CF_partial_relative": [0.0],
+            "fail_rate_relative": [25.0],
+            "win_rate_relative": [75.0],
+            "first_attempt_relative": [50.0],
         }
     )
