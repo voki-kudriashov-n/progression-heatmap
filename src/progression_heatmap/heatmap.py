@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import pandas as pd
 
-HEATMAP_COLUMNS = ("level_group", "date", "value")
+HEATMAP_INDEX_COLUMNS = ("level_group", "date")
 
 
-def prepare_heatmap_table(frame: pd.DataFrame) -> pd.DataFrame:
+def prepare_heatmap_table(frame: pd.DataFrame, value_column: str = "value") -> pd.DataFrame:
     """Pivot filtered rows into a level_group x date table without aggregation."""
 
-    missing_columns = sorted(set(HEATMAP_COLUMNS).difference(frame.columns))
+    required_columns = (*HEATMAP_INDEX_COLUMNS, value_column)
+    missing_columns = sorted(set(required_columns).difference(frame.columns))
     if missing_columns:
         msg = f"Missing heatmap columns: {', '.join(missing_columns)}"
         raise ValueError(msg)
@@ -18,10 +19,10 @@ def prepare_heatmap_table(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
 
-    heatmap_input = frame.loc[:, HEATMAP_COLUMNS].copy()
+    heatmap_input = frame.loc[:, required_columns].copy()
     heatmap_input["date"] = pd.to_datetime(heatmap_input["date"]).dt.normalize()
     heatmap_input["level_group"] = pd.to_numeric(heatmap_input["level_group"])
-    heatmap_input["value"] = pd.to_numeric(heatmap_input["value"])
+    heatmap_input[value_column] = pd.to_numeric(heatmap_input[value_column])
 
     duplicate_cells = heatmap_input.duplicated(["level_group", "date"], keep=False)
     if duplicate_cells.any():
@@ -34,7 +35,7 @@ def prepare_heatmap_table(frame: pd.DataFrame) -> pd.DataFrame:
     heatmap_table = heatmap_input.pivot(
         index="level_group",
         columns="date",
-        values="value",
+        values=value_column,
     )
     heatmap_table = heatmap_table.sort_index(axis=0).sort_index(axis=1)
     heatmap_table.index.name = "level_group"

@@ -24,7 +24,7 @@ from progression_heatmap.heatmap import prepare_heatmap_table
 from progression_heatmap.metrics import (
     calculation_methods_for_metric,
     metric_names,
-    select_metric_values,
+    select_metric_values_with_context,
     to_pandas_frame,
 )
 
@@ -91,9 +91,9 @@ def main() -> None:
         _render_unexpected_error(exc)
         return
 
-    metric_values = select_metric_values(statistics, metric_selection)
+    metric_values = select_metric_values_with_context(statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
-    heatmap_table = prepare_heatmap_table(metric_values)
+    heatmap_table = prepare_heatmap_table(metric_values, "value")
     LOGGER.info(
         "app.render_heatmap.ready project=%s metric_rows=%s heatmap_rows=%s heatmap_columns=%s",
         project_key,
@@ -105,7 +105,7 @@ def main() -> None:
     if config.production_simulation and resolve_data_source(config) == "csv":
         st.warning("Local CSV source is active for this config.")
 
-    _render_heatmap(heatmap_table)
+    _render_heatmap(heatmap_table, metric_values)
 
     with st.expander("Grouped metric rows", expanded=False):
         st.dataframe(metric_values, use_container_width=True, hide_index=True)
@@ -298,20 +298,25 @@ def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelect
         filter_options.date_max,
     )
 
-    payer_types = st.sidebar.multiselect(
-        "Payer type",
-        filter_options.payer_types,
-        default=filter_options.payer_types,
+    attempt_groups = st.sidebar.multiselect(
+        "Attempt group",
+        filter_options.attempt_groups,
+        default=filter_options.attempt_groups,
+    )
+    platform_names = st.sidebar.multiselect(
+        "Platform",
+        filter_options.platform_names,
+        default=filter_options.platform_names,
     )
     traffic_types = st.sidebar.multiselect(
         "Traffic type",
         filter_options.traffic_types,
         default=filter_options.traffic_types,
     )
-    platform_names = st.sidebar.multiselect(
-        "Platform",
-        filter_options.platform_names,
-        default=filter_options.platform_names,
+    payer_types = st.sidebar.multiselect(
+        "Payer type",
+        filter_options.payer_types,
+        default=filter_options.payer_types,
     )
 
     selected_metric_name = st.sidebar.selectbox("Metric name", metric_names())
@@ -322,6 +327,15 @@ def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelect
         methods,
         index=default_method_index,
     )
+    min_observations = 1000
+    if selected_calculation_method in {"relative", "partial_relative"}:
+        min_observations = st.sidebar.number_input(
+            "Minimum observations",
+            min_value=0,
+            max_value=10_000_000,
+            value=1000,
+            step=100,
+        )
 
     return PreAggregationFilters(
         level_min=level_range[0],
@@ -331,17 +345,30 @@ def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelect
         payer_types=tuple(payer_types),
         traffic_types=tuple(traffic_types),
         platform_names=tuple(platform_names),
+        attempt_groups=tuple(attempt_groups),
     ), MetricSelection(
         metric_name=selected_metric_name,
         calculation_method=selected_calculation_method,
+        min_observations=int(min_observations),
     )
 
 
-def _render_heatmap(heatmap_table: pd.DataFrame) -> None:
+def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) -> None:
     st.subheader("Metric value by level cohort and date")
     if heatmap_table.empty:
         st.info("No rows match the current filters.")
         return
+
+    value_count_table = _aligned_heatmap_table(metric_values, "value_count", heatmap_table)
+    sample_count_table = _aligned_heatmap_table(metric_values, "sample_count", heatmap_table)
+    low_sample_table = _aligned_heatmap_table(metric_values, "is_low_sample", heatmap_table)
+    low_sample_mask = low_sample_table.fillna(False).astype(bool)
+    customdata = _heatmap_custom_data(
+        heatmap_table,
+        value_count_table,
+        sample_count_table,
+        low_sample_mask,
+    )
 
     x_values = pd.to_datetime(heatmap_table.columns).to_pydatetime()
     y_values = heatmap_table.index.astype(int).tolist()
@@ -364,16 +391,45 @@ def _render_heatmap(heatmap_table: pd.DataFrame) -> None:
                 "title": {"text": "Metric value", "font": {"color": "#eef3f7"}},
                 "tickfont": {"color": "#d7dee6"},
             },
+            customdata=customdata,
             hovertemplate=(
                 "Level cohort: %{y}<br>"
                 "Date: %{x|%Y-%m-%d}<br>"
-                "Value: %{z:.3f}<extra></extra>"
+                "Value: %{z:.3f}<br>"
+                "Metric count: %{customdata[0]:,.0f}<br>"
+                "Sample count: %{customdata[1]:,.0f}<br>"
+                "Sample status: %{customdata[2]}<extra></extra>"
             ),
             xgap=0,
             ygap=0,
             zsmooth=False,
         )
     )
+    if low_sample_mask.any().any():
+        low_sample_z = low_sample_mask.astype(float).where(low_sample_mask)
+        figure.add_trace(
+            go.Heatmap(
+                z=low_sample_z.to_numpy(),
+                x=x_values,
+                y=y_values,
+                colorscale=[[0.0, "#6b7280"], [1.0, "#6b7280"]],
+                customdata=customdata,
+                hovertemplate=(
+                    "Level cohort: %{y}<br>"
+                    "Date: %{x|%Y-%m-%d}<br>"
+                    "Value: %{customdata[3]:.3f}<br>"
+                    "Metric count: %{customdata[0]:,.0f}<br>"
+                    "Sample count: %{customdata[1]:,.0f}<br>"
+                    "Sample status: %{customdata[2]}<extra></extra>"
+                ),
+                opacity=0.88,
+                showscale=False,
+                xgap=0,
+                ygap=0,
+                zmin=0,
+                zmax=1,
+            )
+        )
     figure.update_layout(
         dragmode="zoom",
         font={"color": "#d7dee6"},
@@ -409,6 +465,35 @@ def _render_heatmap(heatmap_table: pd.DataFrame) -> None:
             "scrollZoom": True,
         },
     )
+
+
+def _aligned_heatmap_table(
+    metric_values: pd.DataFrame,
+    value_column: str,
+    template: pd.DataFrame,
+) -> pd.DataFrame:
+    table = prepare_heatmap_table(metric_values, value_column)
+    return table.reindex(index=template.index, columns=template.columns)
+
+
+def _heatmap_custom_data(
+    heatmap_table: pd.DataFrame,
+    value_count_table: pd.DataFrame,
+    sample_count_table: pd.DataFrame,
+    low_sample_mask: pd.DataFrame,
+):
+    return [
+        [
+            [
+                value_count_table.iloc[row_index, column_index],
+                sample_count_table.iloc[row_index, column_index],
+                "low sample" if low_sample_mask.iloc[row_index, column_index] else "ok",
+                heatmap_table.iloc[row_index, column_index],
+            ]
+            for column_index in range(len(value_count_table.columns))
+        ]
+        for row_index in range(len(value_count_table.index))
+    ]
 
 
 def _coerce_date_range(value: Any, default_start: date, default_end: date) -> tuple[date, date]:

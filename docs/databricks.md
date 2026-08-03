@@ -62,7 +62,9 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 
 There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
 
-In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds and distinct filter values are collected with one SQL warehouse query, grouped metric statistics are pushed down to a second query after the user selects filters, and only compact result sets are returned to pandas for rendering.
+In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds, attempt groups, and distinct filter values are collected with one SQL warehouse query, grouped metric statistics are pushed down to a second query after the user selects filters, and only compact result sets are returned to pandas for rendering.
+
+The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample shading. The `1 attempt` / `2+ attempts` filter is pushed into the SQL `where` clause.
 
 The sidebar shows a small Diagnostics panel with the resolved source, project, table, and current loading stage. The app also writes INFO logs to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 

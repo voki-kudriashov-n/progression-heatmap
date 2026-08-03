@@ -52,7 +52,7 @@ PySpark requires a working Java runtime. The project keeps PySpark in the depend
 
 ## Data Source Boundary
 
-Runtime data access goes through `progression_heatmap.data_sources`. The current configs use `CsvRawAttemptsDataSource`, while a future Databricks App can use `SparkSqlRawAttemptsDataSource` or `SparkTableRawAttemptsDataSource`. All source adapters must return the same raw attempt columns before processing starts.
+Runtime data access goes through `progression_heatmap.data_sources`. Local runs use `CsvRawAttemptsDataSource`; Databricks App runs use the SQL warehouse adapter. Spark SQL and Spark table adapters are kept as prepared integration paths. All source adapters must return the same raw attempt columns before processing starts.
 
 `data_source = "auto"` is environment-aware:
 
@@ -60,3 +60,5 @@ Runtime data access goes through `progression_heatmap.data_sources`. The current
 - Databricks App runtime -> Databricks SQL warehouse source
 
 Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps read the table configured for the selected project; the current MM smoke-test config maps to `game_data_prod.analytics_voki.raw_objects_mm_test_users`.
+
+Current pre-group filters are level cohort range, date range, attempt group, platform, traffic type, and payer type. Percentage heatmap cells include numerator/sample counts in hover details and use gray shading when the sample count is below the selected threshold.

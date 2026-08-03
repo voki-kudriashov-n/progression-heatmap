@@ -25,6 +25,9 @@ from progression_heatmap.data import (
     select_raw_attempt_columns,
 )
 from progression_heatmap.filters import (
+    ATTEMPT_GROUP_FIRST,
+    ATTEMPT_GROUP_REPEAT,
+    ATTEMPT_GROUPS,
     DateLike,
     PreAggregationFilters,
     RawFilterOptions,
@@ -178,6 +181,7 @@ class DatabricksSqlWarehouseRawAttemptsDataSource:
             payer_types=_json_array_tuple(options["payer_types"]),
             traffic_types=_json_array_tuple(options["traffic_types"]),
             platform_names=_json_array_tuple(options["platform_names"]),
+            attempt_groups=_json_array_tuple(options["attempt_groups"]),
         )
 
     def aggregate_statistics(self, criteria: PreAggregationFilters):
@@ -430,7 +434,13 @@ def _filter_options_query(table_name: str) -> str:
         "  max(cast(partition_date as date)) as date_max,\n"
         "  to_json(sort_array(collect_set(cast(payer_type as string)))) as payer_types,\n"
         "  to_json(sort_array(collect_set(cast(traffic_type as string)))) as traffic_types,\n"
-        "  to_json(sort_array(collect_set(cast(platform_name as string)))) as platform_names\n"
+        "  to_json(sort_array(collect_set(cast(platform_name as string)))) as platform_names,\n"
+        "  to_json(sort_array(collect_set(\n"
+        "    case\n"
+        f"      when cast(attempt as int) = 1 then '{ATTEMPT_GROUP_FIRST}'\n"
+        f"      when cast(attempt as int) >= 2 then '{ATTEMPT_GROUP_REPEAT}'\n"
+        "    end\n"
+        "  ))) as attempt_groups\n"
         f"from {table_name}"
     )
 
@@ -461,6 +471,8 @@ def _aggregate_statistics_query(table_name: str, criteria: PreAggregationFilters
         "    sum(CW) as CW_absolute,\n"
         "    sum(CF) as CF_absolute,\n"
         "    sum(FF) as FF_absolute,\n"
+        "    sum(FW) + sum(CW) as wins_absolute,\n"
+        "    sum(FF) + sum(CF) as fails_absolute,\n"
         "    cast(count(*) as double) as attempts_absolute,\n"
         "    sum(failed) as failed_absolute,\n"
         "    avg(attempt) as attempt_average,\n"
@@ -471,8 +483,8 @@ def _aggregate_statistics_query(table_name: str, criteria: PreAggregationFilters
         "totals as (\n"
         "  select\n"
         "    *,\n"
-        "    FW_absolute + CW_absolute as wins,\n"
-        "    FF_absolute + CF_absolute as fails\n"
+        "    wins_absolute as wins,\n"
+        "    fails_absolute as fails\n"
         "  from grouped\n"
         ")\n"
         "select\n"
@@ -482,6 +494,8 @@ def _aggregate_statistics_query(table_name: str, criteria: PreAggregationFilters
         "  cast(CW_absolute as double) as CW_absolute,\n"
         "  cast(CF_absolute as double) as CF_absolute,\n"
         "  cast(FF_absolute as double) as FF_absolute,\n"
+        "  cast(wins_absolute as double) as wins_absolute,\n"
+        "  cast(fails_absolute as double) as fails_absolute,\n"
         "  cast(attempts_absolute as double) as attempts_absolute,\n"
         "  cast(failed_absolute as double) as failed_absolute,\n"
         "  cast(attempt_average as double) as attempt_average,\n"
@@ -541,6 +555,9 @@ def _where_clause(criteria: PreAggregationFilters) -> str:
         conditions.append(_sql_in_clause("traffic_type", criteria.traffic_types))
     if criteria.platform_names:
         conditions.append(_sql_in_clause("platform_name", criteria.platform_names))
+    attempt_group_condition = _attempt_group_condition(criteria.attempt_groups)
+    if attempt_group_condition is not None:
+        conditions.append(attempt_group_condition)
 
     if not conditions:
         return ""
@@ -550,6 +567,25 @@ def _where_clause(criteria: PreAggregationFilters) -> str:
 def _sql_in_clause(column_name: str, values: tuple[str, ...]) -> str:
     literals = ", ".join(_sql_string_literal(value) for value in values)
     return f"cast({column_name} as string) in ({literals})"
+
+
+def _attempt_group_condition(attempt_groups: tuple[str, ...]) -> str | None:
+    if not attempt_groups or set(attempt_groups) == set(ATTEMPT_GROUPS):
+        return None
+
+    conditions = []
+    for attempt_group in attempt_groups:
+        if attempt_group == ATTEMPT_GROUP_FIRST:
+            conditions.append("cast(attempt as int) = 1")
+        elif attempt_group == ATTEMPT_GROUP_REPEAT:
+            conditions.append("cast(attempt as int) >= 2")
+        else:
+            msg = f"Unsupported attempt group: {attempt_group!r}"
+            raise ValueError(msg)
+
+    if not conditions:
+        return None
+    return "(" + " or ".join(conditions) + ")"
 
 
 def _sql_string_literal(value: str) -> str:

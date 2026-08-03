@@ -8,8 +8,8 @@ The dashboard is intentionally small and split into testable modules.
 - `src/progression_heatmap/config.py`: Loads `config/dev.toml` or `config/prod.toml`.
 - `src/progression_heatmap/data.py`: Defines the required raw attempt schema, validation, normalization, and local CSV loading helper.
 - `src/progression_heatmap/data_sources.py`: Contains source adapters for local CSV, Databricks SQL warehouse, Spark SQL, and Spark tables.
-- `src/progression_heatmap/filters.py`: Applies pre-group filters for level cohort, date, payer type, traffic type, and platform, and stores metric selections.
-- `src/progression_heatmap/metrics.py`: Groups filtered raw rows by `level_cohort` and `partition_date`, computes all grouped statistics, and selects one metric value for rendering.
+- `src/progression_heatmap/filters.py`: Applies pre-group filters for level cohort, date, attempt group, payer type, traffic type, and platform, and stores metric selections.
+- `src/progression_heatmap/metrics.py`: Groups filtered raw rows by `level_cohort` and `partition_date`, computes all grouped statistics, and selects one metric value plus hover/reliability context for rendering.
 - `src/progression_heatmap/heatmap.py`: Converts selected metric rows into a `level_group` by `date` heatmap table.
 
 ## Data Flow
@@ -42,11 +42,14 @@ Pre-group filters are applied before aggregation:
 
 - level cohort range
 - partition date range
+- attempt group (`1 attempt` or `2+ attempts`)
 - payer type
 - traffic type
 - platform name
 
-After that, `metrics.py` calculates grouped statistics by `level_cohort` and `partition_date`. The grouped statistics include absolute sums, rates, partial rates, counts, and averages. The Streamlit app caches this grouped result based on pre-group filters. Changing `metric_name` or `calculation_method` selects a precomputed statistic without recalculating the group by.
+After that, `metrics.py` calculates grouped statistics by `level_cohort` and `partition_date`. The grouped statistics include absolute sums, wins, rates, partial rates, counts, and averages. The Streamlit app caches this grouped result based on pre-group filters. Changing `metric_name`, `calculation_method`, or the minimum observations threshold selects a precomputed statistic without recalculating the group by.
+
+Percentage metrics carry `value_count`, `sample_count`, and `is_low_sample` context into Plotly. Cells below the selected minimum observations threshold are rendered with a gray overlay while preserving the underlying value in the hover label.
 
 ## Why UI And Business Logic Are Separated
 

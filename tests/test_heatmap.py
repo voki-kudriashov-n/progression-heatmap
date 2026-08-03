@@ -6,7 +6,11 @@ import pytest
 from progression_heatmap.data import load_raw_attempts_data
 from progression_heatmap.filters import MetricSelection, PreAggregationFilters
 from progression_heatmap.heatmap import prepare_heatmap_records, prepare_heatmap_table
-from progression_heatmap.metrics import aggregate_statistics, select_metric_values
+from progression_heatmap.metrics import (
+    aggregate_statistics,
+    select_metric_values,
+    select_metric_values_with_context,
+)
 
 SAMPLE_DATA = Path(__file__).resolve().parents[1] / "data" / "sample_heatmap_data.csv"
 
@@ -97,6 +101,8 @@ def test_grouped_metrics_use_expected_calculations() -> None:
     row = statistics.iloc[0]
 
     assert row["attempts_absolute"] == 3
+    assert row["wins_absolute"] == 1
+    assert row["fails_absolute"] == 2
     assert row["CF_absolute"] == 2
     assert row["CF_relative"] == pytest.approx(2 / 3 * 100)
     assert row["CF_partial_relative"] == 100
@@ -106,6 +112,46 @@ def test_grouped_metrics_use_expected_calculations() -> None:
     assert row["attempt_average"] == 2
     assert row["first_attempt_absolute"] == 1
     assert row["first_attempt_relative"] == pytest.approx(1 / 3 * 100)
+
+
+def test_wins_absolute_metric_is_selectable() -> None:
+    frame = load_raw_attempts_data(SAMPLE_DATA, engine="pandas")
+    statistics = aggregate_statistics(
+        frame,
+        PreAggregationFilters(level_min=0, level_max=2),
+    )
+
+    metric_values = select_metric_values(
+        statistics,
+        MetricSelection(metric_name="wins", calculation_method="absolute"),
+    )
+
+    assert not metric_values.empty
+    assert metric_values["value"].ge(0).all()
+    assert set(metric_values["metric_name"]) == {"wins"}
+
+
+def test_percentage_metric_values_include_context_and_low_sample_flag() -> None:
+    frame = load_raw_attempts_data(SAMPLE_DATA, engine="pandas")
+    statistics = aggregate_statistics(
+        frame,
+        PreAggregationFilters(level_min=0, level_max=0),
+    )
+
+    metric_values = select_metric_values_with_context(
+        statistics,
+        MetricSelection(
+            metric_name="fail_rate",
+            calculation_method="relative",
+            min_observations=1000,
+        ),
+    )
+
+    assert {"value_count", "sample_count", "is_low_sample"}.issubset(metric_values.columns)
+    expected = statistics.loc[:, ["failed_absolute", "attempts_absolute"]].reset_index(drop=True)
+    assert metric_values["value_count"].equals(expected["failed_absolute"].astype(float))
+    assert metric_values["sample_count"].equals(expected["attempts_absolute"].astype(float))
+    assert metric_values["is_low_sample"].all()
 
 
 def test_heatmap_preparation_rejects_duplicate_cell_values() -> None:

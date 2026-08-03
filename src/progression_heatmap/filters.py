@@ -8,6 +8,9 @@ from datetime import date, datetime
 import pandas as pd
 
 DateLike = str | date | datetime | pd.Timestamp
+ATTEMPT_GROUP_FIRST = "1 attempt"
+ATTEMPT_GROUP_REPEAT = "2+ attempts"
+ATTEMPT_GROUPS = (ATTEMPT_GROUP_FIRST, ATTEMPT_GROUP_REPEAT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +24,7 @@ class PreAggregationFilters:
     payer_types: tuple[str, ...] = ()
     traffic_types: tuple[str, ...] = ()
     platform_names: tuple[str, ...] = ()
+    attempt_groups: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +33,7 @@ class MetricSelection:
 
     metric_name: str
     calculation_method: str
+    min_observations: int = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +47,7 @@ class RawFilterOptions:
     payer_types: tuple[str, ...]
     traffic_types: tuple[str, ...]
     platform_names: tuple[str, ...]
+    attempt_groups: tuple[str, ...]
 
 
 def apply_pre_aggregation_filters(frame, criteria: PreAggregationFilters):
@@ -66,6 +72,7 @@ def collect_raw_filter_options(frame) -> RawFilterOptions:
         payer_types=tuple(sorted_unique_values(frame, "payer_type")),
         traffic_types=tuple(sorted_unique_values(frame, "traffic_type")),
         platform_names=tuple(sorted_unique_values(frame, "platform_name")),
+        attempt_groups=tuple(_attempt_groups_pandas(frame)),
     )
 
 
@@ -98,6 +105,8 @@ def _apply_pre_aggregation_filters_pandas(
         filtered = filtered[filtered["traffic_type"].isin(criteria.traffic_types)]
     if criteria.platform_names:
         filtered = filtered[filtered["platform_name"].isin(criteria.platform_names)]
+    if _should_filter_attempt_groups(criteria.attempt_groups):
+        filtered = filtered[_attempt_group_mask_pandas(filtered, criteria.attempt_groups)]
 
     return filtered.reset_index(drop=True)
 
@@ -128,6 +137,17 @@ def _apply_pre_aggregation_filters_spark(frame, criteria: PreAggregationFilters)
         filtered = filtered.filter(
             sql_functions.col("platform_name").isin(list(criteria.platform_names))
         )
+    if _should_filter_attempt_groups(criteria.attempt_groups):
+        conditions = []
+        if ATTEMPT_GROUP_FIRST in criteria.attempt_groups:
+            conditions.append(sql_functions.col("attempt") == 1)
+        if ATTEMPT_GROUP_REPEAT in criteria.attempt_groups:
+            conditions.append(sql_functions.col("attempt") >= 2)
+        if conditions:
+            attempt_condition = conditions[0]
+            for condition in conditions[1:]:
+                attempt_condition = attempt_condition | condition
+            filtered = filtered.filter(attempt_condition)
     return filtered
 
 
@@ -148,6 +168,7 @@ def _collect_raw_filter_options_spark(frame) -> RawFilterOptions:
         payer_types=tuple(sorted_unique_values(frame, "payer_type")),
         traffic_types=tuple(sorted_unique_values(frame, "traffic_type")),
         platform_names=tuple(sorted_unique_values(frame, "platform_name")),
+        attempt_groups=tuple(_attempt_groups_spark(frame)),
     )
 
 
@@ -163,6 +184,50 @@ def _validate_level_range(criteria: PreAggregationFilters) -> None:
 
 def _to_timestamp(value: DateLike) -> pd.Timestamp:
     return pd.Timestamp(value).normalize()
+
+
+def _attempt_groups_pandas(frame: pd.DataFrame) -> list[str]:
+    groups = []
+    if (frame["attempt"] == 1).any():
+        groups.append(ATTEMPT_GROUP_FIRST)
+    if (frame["attempt"] >= 2).any():
+        groups.append(ATTEMPT_GROUP_REPEAT)
+    return groups
+
+
+def _attempt_groups_spark(frame) -> list[str]:
+    from pyspark.sql import functions as sql_functions
+
+    row = frame.agg(
+        sql_functions.max(
+            sql_functions.when(sql_functions.col("attempt") == 1, 1).otherwise(0)
+        ).alias("has_first"),
+        sql_functions.max(
+            sql_functions.when(sql_functions.col("attempt") >= 2, 1).otherwise(0)
+        ).alias("has_repeat"),
+    ).first()
+    groups = []
+    if row["has_first"]:
+        groups.append(ATTEMPT_GROUP_FIRST)
+    if row["has_repeat"]:
+        groups.append(ATTEMPT_GROUP_REPEAT)
+    return groups
+
+
+def _should_filter_attempt_groups(attempt_groups: tuple[str, ...]) -> bool:
+    return bool(attempt_groups) and set(attempt_groups) != set(ATTEMPT_GROUPS)
+
+
+def _attempt_group_mask_pandas(
+    frame: pd.DataFrame,
+    attempt_groups: tuple[str, ...],
+) -> pd.Series:
+    mask = pd.Series(False, index=frame.index)
+    if ATTEMPT_GROUP_FIRST in attempt_groups:
+        mask = mask | (frame["attempt"] == 1)
+    if ATTEMPT_GROUP_REPEAT in attempt_groups:
+        mask = mask | (frame["attempt"] >= 2)
+    return mask
 
 
 def _is_spark_frame(frame) -> bool:

@@ -334,6 +334,7 @@ def test_databricks_sql_filter_options_use_pushdown_queries() -> None:
                     "payer_types": ['["nonpayer","payer"]'],
                     "traffic_types": ['["organic","paid"]'],
                     "platform_names": ['["android","ios"]'],
+                    "attempt_groups": ['["1 attempt","2+ attempts"]'],
                 }
             ),
         ]
@@ -349,10 +350,12 @@ def test_databricks_sql_filter_options_use_pushdown_queries() -> None:
     assert options.payer_types == ("nonpayer", "payer")
     assert options.traffic_types == ("organic", "paid")
     assert options.platform_names == ("android", "ios")
+    assert options.attempt_groups == ("1 attempt", "2+ attempts")
     assert len(connection_factory.queries) == 1
     query = connection_factory.queries[0]
     assert "min(cast(level_cohort as int))" in query
     assert "to_json(sort_array(collect_set(cast(payer_type as string))))" in query
+    assert "when cast(attempt as int) = 1 then '1 attempt'" in query
     assert all("client_time" not in query for query in connection_factory.queries)
 
 
@@ -367,6 +370,7 @@ def test_databricks_sql_aggregate_statistics_pushes_filters_to_warehouse() -> No
         payer_types=("payer", "payer's cohort"),
         traffic_types=("organic",),
         platform_names=("ios",),
+        attempt_groups=("2+ attempts",),
     )
 
     frame = source.aggregate_statistics(criteria)
@@ -384,6 +388,7 @@ def test_databricks_sql_aggregate_statistics_pushes_filters_to_warehouse() -> No
     assert "cast(payer_type as string) in ('payer', 'payer''s cohort')" in query
     assert "cast(traffic_type as string) in ('organic')" in query
     assert "cast(platform_name as string) in ('ios')" in query
+    assert "cast(attempt as int) >= 2" in query
     assert "client_time" not in query
 
 
@@ -505,6 +510,8 @@ def _statistics_response_frame() -> pd.DataFrame:
             "CW_absolute": [2.0],
             "CF_absolute": [0.0],
             "FF_absolute": [1.0],
+            "wins_absolute": [3.0],
+            "fails_absolute": [1.0],
             "attempts_absolute": [4.0],
             "failed_absolute": [1.0],
             "attempt_average": [1.5],

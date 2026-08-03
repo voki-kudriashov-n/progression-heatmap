@@ -5,6 +5,8 @@ import pytest
 
 from progression_heatmap.data import load_raw_attempts_data
 from progression_heatmap.filters import (
+    ATTEMPT_GROUP_FIRST,
+    ATTEMPT_GROUP_REPEAT,
     MetricSelection,
     PreAggregationFilters,
     apply_pre_aggregation_filters,
@@ -71,6 +73,22 @@ def test_platform_name_filter(sample_frame: pd.DataFrame) -> None:
     assert set(filtered["platform_name"]) == {"android"}
 
 
+def test_attempt_group_filter(sample_frame: pd.DataFrame) -> None:
+    first_attempts = apply_pre_aggregation_filters(
+        sample_frame,
+        PreAggregationFilters(attempt_groups=(ATTEMPT_GROUP_FIRST,)),
+    )
+    repeat_attempts = apply_pre_aggregation_filters(
+        sample_frame,
+        PreAggregationFilters(attempt_groups=(ATTEMPT_GROUP_REPEAT,)),
+    )
+
+    assert not first_attempts.empty
+    assert not repeat_attempts.empty
+    assert first_attempts["attempt"].eq(1).all()
+    assert repeat_attempts["attempt"].ge(2).all()
+
+
 def test_raw_filter_options(sample_frame: pd.DataFrame) -> None:
     options = collect_raw_filter_options(sample_frame)
 
@@ -81,6 +99,7 @@ def test_raw_filter_options(sample_frame: pd.DataFrame) -> None:
     assert "payer" in options.payer_types
     assert "organic" in options.traffic_types
     assert "android" in options.platform_names
+    assert options.attempt_groups == (ATTEMPT_GROUP_FIRST, ATTEMPT_GROUP_REPEAT)
 
 
 def test_metric_selection_requires_supported_values() -> None:
