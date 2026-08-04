@@ -66,7 +66,7 @@ In Databricks mode the app does not fetch the full raw table into Streamlit. Fil
 
 The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample shading. The `1 attempt` / `2+ attempts` filter is pushed into the SQL `where` clause.
 
-The sidebar shows a small Diagnostics panel with the resolved source, project, table, and current loading stage. The app also writes INFO logs to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
+The app writes INFO diagnostics to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
 The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
 
