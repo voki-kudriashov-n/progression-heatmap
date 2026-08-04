@@ -61,4 +61,4 @@ Runtime data access goes through `progression_heatmap.data_sources`. Local runs 
 
 Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps read the table configured for the selected project.
 
-Current pre-group aggregation filters are attempt group, platform, traffic type, and payer type. Level cohort range and date range are display filters applied after grouped statistics are cached. Percentage heatmap cells include numerator/sample counts in hover details and use gray shading when the sample count is below the selected threshold.
+Current pre-group aggregation filters are attempt group, platform, traffic type, and payer type. The dashboard applies staged filter changes to the graph only when the user clicks `Apply`. Level cohort range and date range are display filters applied after grouped statistics are cached. Percentage heatmap cells include numerator/sample counts in hover details and use gray shading when the sample count is below the selected threshold.

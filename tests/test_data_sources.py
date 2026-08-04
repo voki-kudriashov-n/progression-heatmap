@@ -22,6 +22,7 @@ from progression_heatmap.metrics import aggregate_statistics, select_metric_valu
 SAMPLE_DATA = Path(__file__).resolve().parents[1] / "data" / "sample_heatmap_data.csv"
 MM_TABLE = "game_data_prod.analytics_voki.raw_objects_mm"
 MYM_TABLE = "game_data_prod.analytics_voki.raw_objects_mym"
+PROD_MYM_TABLE = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 
 
 class FakeSparkSession:
@@ -222,7 +223,7 @@ def test_prod_config_uses_app_facing_project_tables() -> None:
     config = load_config(Path(__file__).resolve().parents[1] / "config" / "prod.toml")
 
     assert config.project("MM").databricks_table == MM_TABLE
-    assert config.project("MyM").databricks_table == MYM_TABLE
+    assert config.project("MyM").databricks_table == PROD_MYM_TABLE
 
 
 def test_spark_sql_data_source_uses_query_and_raw_contract() -> None:

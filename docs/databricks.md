@@ -50,7 +50,7 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mm"
 
 [projects.MyM]
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 ```
 
 `auto` resolves to:
@@ -64,7 +64,7 @@ In Databricks mode the app does not fetch the full raw table into Streamlit. Fil
 
 The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample shading. The `1 attempt` / `2+ attempts` filter is pushed into the SQL `where` clause.
 
-The app keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
+The app starts SQL aggregation only after the user clicks `Apply`. It keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
 
 The app writes INFO diagnostics to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
@@ -88,7 +88,7 @@ The app service principal needs:
 - `Can use` on the connected SQL warehouse resource.
 - `USE CATALOG` on the parent catalog.
 - `USE SCHEMA` on the parent schema.
-- `SELECT` on the configured project tables: `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
+- `SELECT` on the configured project tables: `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mm_test_users`.
 
 Example grants:
 
@@ -96,7 +96,7 @@ Example grants:
 GRANT USE CATALOG ON CATALOG game_data_prod TO `<app-service-principal>`;
 GRANT USE SCHEMA ON SCHEMA game_data_prod.<schema_name> TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm TO `<app-service-principal>`;
-GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mym TO `<app-service-principal>`;
+GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm_test_users TO `<app-service-principal>`;
 ```
 
 Replace `<app-service-principal>` with the service principal shown on the Databricks App Authorization tab.

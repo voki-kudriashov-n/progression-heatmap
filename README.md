@@ -55,7 +55,7 @@ make check
 ## Current Limitations
 
 - Local runs read `data/sample_heatmap_data.csv`, which mirrors the expected raw source table shape.
-- Databricks App runs read project-specific tables through the connected SQL warehouse: `MM -> game_data_prod.analytics_voki.raw_objects_mm`, `MyM -> game_data_prod.analytics_voki.raw_objects_mym`.
+- Databricks App runs read project-specific tables through the connected SQL warehouse. The current prod config maps `MM -> game_data_prod.analytics_voki.raw_objects_mm` and `MyM -> game_data_prod.analytics_voki.raw_objects_mm_test_users`.
 - The sample data stays below the Databricks App source-file limit and covers `level_cohort` values `0..900` for daily `partition_date` values from `2026-01-01` through `2026-02-19`.
 - The dashboard has no browser-based UI tests yet.
 - Local PySpark loading requires a working Java runtime; without Java, the app uses a pandas compatibility path for local development and tests.
@@ -71,7 +71,7 @@ Pre-group aggregation filters:
 - `platform_name`
 - `attempt` group
 
-After those filters, grouped statistics are calculated by `level_cohort` and `partition_date`. The app keeps the last 10 grouped tables in memory, keyed by project/source and these aggregation filters. The `level_cohort` range and `partition_date` range are applied to that cached grouped table at display time, so changing only date or level does not recalculate the group by. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
+After those filters, grouped statistics are calculated by `level_cohort` and `partition_date` only after the user clicks `Apply`. The app keeps the last 10 grouped tables in memory, keyed by project/source and these aggregation filters. The `level_cohort` range and `partition_date` range are applied to that cached grouped table at display time, so changing only date or level does not recalculate the group by. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
 
 ## Databricks Data Path
 

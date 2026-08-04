@@ -67,6 +67,15 @@ class ProjectTheme:
     muted_text_color: str
 
 
+@dataclass(frozen=True, slots=True)
+class ChartRequest:
+    """Filter state that has been applied to the rendered chart."""
+
+    aggregation_filters: PreAggregationFilters
+    display_filters: DisplayFilters
+    metric_selection: MetricSelection
+
+
 PROJECT_THEMES: dict[str, ProjectTheme] = {
     "MM": ProjectTheme(
         page_background="#201412",
@@ -125,18 +134,31 @@ def main() -> None:
             project_key,
             perf_counter() - filter_started_at,
         )
-        aggregation_filters, display_filters, metric_selection = _render_filters(filter_options)
+        draft_request, apply_requested = _render_filters(filter_options)
+        if apply_requested:
+            _applied_chart_requests()[project_key] = draft_request
+
+        chart_request = _applied_chart_requests().get(project_key)
+        if chart_request is None:
+            with chart_slot.container():
+                st.info("Select filters and apply them to render the heatmap.")
+            return
+
         statistics_started_at = perf_counter()
         with chart_slot.container():
             with st.spinner("Loading heatmap data..."):
-                statistics = _compute_statistics(config, project_key, aggregation_filters)
+                statistics = _compute_statistics(
+                    config,
+                    project_key,
+                    chart_request.aggregation_filters,
+                )
         LOGGER.info(
             "app.statistics.ui_ready project=%s rows=%s elapsed_seconds=%.3f "
             "aggregation_filters=%s",
             project_key,
             len(statistics),
             perf_counter() - statistics_started_at,
-            aggregation_filters,
+            chart_request.aggregation_filters,
         )
     except DatabricksDataAccessError as exc:
         with chart_slot.container():
@@ -148,14 +170,20 @@ def main() -> None:
             _render_unexpected_error(exc)
         return
 
-    display_statistics = apply_grouped_display_filters(statistics, display_filters)
+    display_statistics = apply_grouped_display_filters(
+        statistics,
+        chart_request.display_filters,
+    )
     LOGGER.info(
         "app.statistics.display_filtered project=%s rows=%s display_filters=%s",
         project_key,
         len(display_statistics),
-        display_filters,
+        chart_request.display_filters,
     )
-    metric_values = select_metric_values_with_context(display_statistics, metric_selection)
+    metric_values = select_metric_values_with_context(
+        display_statistics,
+        chart_request.metric_selection,
+    )
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values, "value")
     LOGGER.info(
@@ -254,14 +282,10 @@ def _render_project_selector(config: AppConfig) -> str:
         st.session_state.selected_project_key = selected_key
 
     with st.sidebar:
-        st.header("Project")
         columns = st.columns(len(project_keys))
         for column, project_key in zip(columns, project_keys, strict=False):
             project = config.project(project_key)
             with column:
-                icon_path = PROJECT_ICONS.get(project_key)
-                if icon_path is not None and icon_path.exists():
-                    _render_project_icon(icon_path)
                 button_type = "primary" if project_key == selected_key else "secondary"
                 if st.button(
                     project.display_name,
@@ -275,12 +299,11 @@ def _render_project_selector(config: AppConfig) -> str:
     return str(st.session_state.selected_project_key)
 
 
-def _render_project_icon(icon_path: Path) -> None:
-    encoded_icon = base64.b64encode(icon_path.read_bytes()).decode("ascii")
-    st.markdown(
-        f'<img class="project-selector-icon" src="data:image/png;base64,{encoded_icon}" alt="" />',
-        unsafe_allow_html=True,
-    )
+def _applied_chart_requests() -> dict[str, ChartRequest]:
+    state_key = "applied_chart_requests_by_project"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = {}
+    return st.session_state[state_key]
 
 
 def _configured_databricks_table(config: AppConfig, project_key: str) -> str | None:
@@ -349,7 +372,7 @@ def _render_unexpected_error(error: Exception) -> None:
 
 def _render_filters(
     filter_options,
-) -> tuple[PreAggregationFilters, DisplayFilters, MetricSelection]:
+) -> tuple[ChartRequest, bool]:
     st.sidebar.header("Filters")
 
     level_range = st.sidebar.slider(
@@ -413,27 +436,38 @@ def _render_filters(
             step=100,
         )
 
-    return PreAggregationFilters(
-        payer_types=_aggregation_filter_values(payer_types, filter_options.payer_types),
-        traffic_types=_aggregation_filter_values(traffic_types, filter_options.traffic_types),
-        platform_names=_aggregation_filter_values(
-            platform_names,
-            filter_options.platform_names,
-        ),
-        attempt_groups=_aggregation_filter_values(
-            attempt_groups,
-            filter_options.attempt_groups,
-        ),
-    ), DisplayFilters(
-        level_min=level_range[0],
-        level_max=level_range[1],
-        start_date=start_date,
-        end_date=end_date,
-    ), MetricSelection(
-        metric_name=selected_metric_name,
-        calculation_method=selected_calculation_method,
-        min_observations=int(min_observations),
+    apply_requested = st.sidebar.button(
+        "Apply",
+        key="apply_filters",
+        type="primary",
+        **_stretch_width_kwargs(st.button),
     )
+
+    return ChartRequest(
+        aggregation_filters=PreAggregationFilters(
+            payer_types=_aggregation_filter_values(payer_types, filter_options.payer_types),
+            traffic_types=_aggregation_filter_values(traffic_types, filter_options.traffic_types),
+            platform_names=_aggregation_filter_values(
+                platform_names,
+                filter_options.platform_names,
+            ),
+            attempt_groups=_aggregation_filter_values(
+                attempt_groups,
+                filter_options.attempt_groups,
+            ),
+        ),
+        display_filters=DisplayFilters(
+            level_min=level_range[0],
+            level_max=level_range[1],
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        metric_selection=MetricSelection(
+            metric_name=selected_metric_name,
+            calculation_method=selected_calculation_method,
+            min_observations=int(min_observations),
+        ),
+    ), apply_requested
 
 
 def _aggregation_filter_values(
@@ -660,6 +694,22 @@ def _stretch_width_kwargs(component: Any) -> dict[str, bool | str]:
     return {"use_container_width": True}
 
 
+def _project_button_icon_css() -> str:
+    rules = []
+    for project_key, icon_path in PROJECT_ICONS.items():
+        if not icon_path.exists():
+            continue
+        encoded_icon = base64.b64encode(icon_path.read_bytes()).decode("ascii")
+        rules.append(
+            f"""
+        [data-testid="stSidebar"] .st-key-project_selector_{project_key} .stButton button {{
+            background-image: url("data:image/png;base64,{encoded_icon}");
+        }}
+        """,
+        )
+    return "\n".join(rules)
+
+
 def _apply_page_style(theme: ProjectTheme) -> None:
     st.markdown(
         f"""
@@ -697,15 +747,7 @@ def _apply_page_style(theme: ProjectTheme) -> None:
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
             color: {theme.muted_text_color};
         }}
-        .project-selector-icon {{
-            border-radius: 6px;
-            display: block;
-            height: 36px;
-            margin: 0 auto 0.25rem auto;
-            object-fit: contain;
-            width: 36px;
-        }}
-        [data-testid="stSidebar"] .stButton > button {{
+        [data-testid="stSidebar"] .stButton button {{
             background: {theme.control_background};
             border: 1px solid {theme.control_border};
             border-radius: 6px;
@@ -713,18 +755,32 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             min-height: 2.15rem;
             padding: 0.2rem 0.45rem;
         }}
-        [data-testid="stSidebar"] .stButton > button:hover {{
+        [data-testid="stSidebar"] .stButton button:hover {{
             border-color: {theme.control_hover};
             color: {theme.text_color};
         }}
-        [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+        [data-testid="stSidebar"] .stButton button[kind="primary"] {{
             background: {theme.accent_background};
             border-color: {theme.accent_background};
             color: {theme.accent_text};
             font-weight: 700;
         }}
-        [data-testid="stSidebar"] .stButton > button[kind="primary"] p {{
+        [data-testid="stSidebar"] .stButton button[kind="primary"] p {{
             color: {theme.accent_text};
+        }}
+        {_project_button_icon_css()}
+        [data-testid="stSidebar"] [class*="st-key-project_selector_"] .stButton button {{
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: 36px 36px;
+            min-height: 48px;
+            padding: 0;
+            width: 48px;
+        }}
+        [data-testid="stSidebar"] [class*="st-key-project_selector_"] .stButton button p {{
+            color: transparent;
+            font-size: 0;
+            line-height: 0;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] {{
             background: {theme.panel_background};
