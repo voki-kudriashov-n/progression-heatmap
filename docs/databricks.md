@@ -37,7 +37,7 @@ The application code is kept Python 3.11-compatible for Databricks App runtime c
 
 ## Data Source Selection
 
-`config/prod.toml` uses the Databricks App smoke-test source:
+`config/prod.toml` uses the Databricks App source:
 
 ```toml
 data_source = "auto"
@@ -46,14 +46,12 @@ databricks_warehouse_id_env = "DATABRICKS_WAREHOUSE_ID"
 
 [projects.MM]
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mm"
 
 [projects.MyM]
 csv_path = "data/sample_heatmap_data.csv"
 databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 ```
-
-`config/prod.toml` currently points MM to `game_data_prod.analytics_voki.raw_objects_mm_test_users` for Databricks App smoke testing. Switch it back to `game_data_prod.analytics_voki.raw_objects_mm` after the app startup and SQL warehouse path are verified.
 
 `auto` resolves to:
 
@@ -62,9 +60,11 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"
 
 There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
 
-In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds, attempt groups, and distinct filter values are collected with one SQL warehouse query, grouped metric statistics are pushed down to a second query after the user selects filters, and only compact result sets are returned to pandas for rendering.
+In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds, attempt groups, and distinct filter values are collected with one SQL warehouse query. Grouped metric statistics are pushed down to a second query after the user selects aggregation filters (`attempt` group, payer type, traffic type, and platform), and only compact result sets are returned to pandas for rendering.
 
 The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample shading. The `1 attempt` / `2+ attempts` filter is pushed into the SQL `where` clause.
+
+The app keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
 
 The app writes INFO diagnostics to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
@@ -77,7 +77,7 @@ The table names are intentionally configured per project. The project selector c
 - `game_data_prod.analytics_voki.raw_objects_mm`
 - `game_data_prod.analytics_voki.raw_objects_mym`
 
-When the notebook runs in test-users mode, it writes separate `_test_users` tables instead of overwriting the app-facing tables. The current MM App smoke test reads `game_data_prod.analytics_voki.raw_objects_mm_test_users`.
+When the notebook runs in test-users mode, it writes separate `_test_users` tables instead of overwriting the app-facing tables.
 
 ## Unity Catalog Permissions
 
@@ -88,14 +88,13 @@ The app service principal needs:
 - `Can use` on the connected SQL warehouse resource.
 - `USE CATALOG` on the parent catalog.
 - `USE SCHEMA` on the parent schema.
-- `SELECT` on the configured project tables. For the current MM smoke test that means `game_data_prod.analytics_voki.raw_objects_mm_test_users`; for full data it means `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
+- `SELECT` on the configured project tables: `game_data_prod.analytics_voki.raw_objects_mm` and `game_data_prod.analytics_voki.raw_objects_mym`.
 
 Example grants:
 
 ```sql
 GRANT USE CATALOG ON CATALOG game_data_prod TO `<app-service-principal>`;
 GRANT USE SCHEMA ON SCHEMA game_data_prod.<schema_name> TO `<app-service-principal>`;
-GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm_test_users TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mym TO `<app-service-principal>`;
 ```

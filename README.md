@@ -64,15 +64,14 @@ make check
 
 The local CSV is loaded as raw attempt rows with fields such as `payer_type`, `traffic_type`, `platform_name`, `failed`, `attempt`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `partition_date`, and `level_cohort`.
 
-Pre-group filters:
+Pre-group aggregation filters:
 
-- `level_cohort` range
-- `partition_date` range
 - `payer_type`
 - `traffic_type`
 - `platform_name`
+- `attempt` group
 
-After those filters, grouped statistics are calculated by `level_cohort` and `partition_date`. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
+After those filters, grouped statistics are calculated by `level_cohort` and `partition_date`. The app keeps the last 10 grouped tables in memory, keyed by project/source and these aggregation filters. The `level_cohort` range and `partition_date` range are applied to that cached grouped table at display time, so changing only date or level does not recalculate the group by. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
 
 ## Databricks Data Path
 

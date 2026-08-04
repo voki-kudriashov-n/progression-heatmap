@@ -13,4 +13,4 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mm"
 [projects.MyM]
 display_name = "MyM"
 csv_path = "data/sample_heatmap_data.csv"
-databricks_table = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
+databricks_table = "game_data_prod.analytics_voki.raw_objects_mym"

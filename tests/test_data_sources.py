@@ -21,7 +21,6 @@ from progression_heatmap.metrics import aggregate_statistics, select_metric_valu
 
 SAMPLE_DATA = Path(__file__).resolve().parents[1] / "data" / "sample_heatmap_data.csv"
 MM_TABLE = "game_data_prod.analytics_voki.raw_objects_mm"
-MM_TEST_USERS_TABLE = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 MYM_TABLE = "game_data_prod.analytics_voki.raw_objects_mym"
 
 
@@ -219,10 +218,10 @@ def test_load_config_supports_project_level_sources() -> None:
     assert config.project("MyM").databricks_table == MYM_TABLE
 
 
-def test_prod_config_uses_mm_test_users_table_for_app_smoke() -> None:
+def test_prod_config_uses_app_facing_project_tables() -> None:
     config = load_config(Path(__file__).resolve().parents[1] / "config" / "prod.toml")
 
-    assert config.project("MM").databricks_table == MM_TEST_USERS_TABLE
+    assert config.project("MM").databricks_table == MM_TABLE
     assert config.project("MyM").databricks_table == MYM_TABLE
 
 

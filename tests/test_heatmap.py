@@ -4,7 +4,13 @@ import pandas as pd
 import pytest
 
 from progression_heatmap.data import load_raw_attempts_data
-from progression_heatmap.filters import MetricSelection, PreAggregationFilters
+from progression_heatmap.filters import (
+    ATTEMPT_GROUP_FIRST,
+    DisplayFilters,
+    MetricSelection,
+    PreAggregationFilters,
+    apply_grouped_display_filters,
+)
 from progression_heatmap.heatmap import prepare_heatmap_records, prepare_heatmap_table
 from progression_heatmap.metrics import (
     aggregate_statistics,
@@ -71,6 +77,40 @@ def test_grouped_metric_values_return_level_group_date_value_records() -> None:
     assert pd.api.types.is_datetime64_any_dtype(records["date"])
     assert pd.api.types.is_float_dtype(records["value"])
     assert records.groupby(["level_group", "date"]).size().max() == 1
+
+
+def test_display_filters_match_pre_aggregation_level_and_date_filters() -> None:
+    frame = load_raw_attempts_data(SAMPLE_DATA, engine="pandas")
+    shared_filters = {
+        "payer_types": ("payer",),
+        "attempt_groups": (ATTEMPT_GROUP_FIRST,),
+    }
+    grouped_without_display_filters = aggregate_statistics(
+        frame,
+        PreAggregationFilters(**shared_filters),
+    )
+    display_filtered = apply_grouped_display_filters(
+        grouped_without_display_filters,
+        DisplayFilters(
+            level_min=10,
+            level_max=20,
+            start_date="2026-01-10",
+            end_date="2026-01-20",
+        ),
+    )
+
+    pre_filtered = aggregate_statistics(
+        frame,
+        PreAggregationFilters(
+            level_min=10,
+            level_max=20,
+            start_date="2026-01-10",
+            end_date="2026-01-20",
+            **shared_filters,
+        ),
+    )
+
+    pd.testing.assert_frame_equal(display_filtered, pre_filtered, check_dtype=False)
 
 
 def test_grouped_metrics_use_expected_calculations() -> None:

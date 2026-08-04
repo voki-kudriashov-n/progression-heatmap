@@ -59,6 +59,6 @@ Runtime data access goes through `progression_heatmap.data_sources`. Local runs 
 - local runtime -> CSV source
 - Databricks App runtime -> Databricks SQL warehouse source
 
-Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps read the table configured for the selected project; the current MM smoke-test config maps to `game_data_prod.analytics_voki.raw_objects_mm_test_users`.
+Project selection happens before loading data. Local tests map both `MM` and `MyM` to the CSV fixture. Databricks Apps read the table configured for the selected project.
 
-Current pre-group filters are level cohort range, date range, attempt group, platform, traffic type, and payer type. Percentage heatmap cells include numerator/sample counts in hover details and use gray shading when the sample count is below the selected threshold.
+Current pre-group aggregation filters are attempt group, platform, traffic type, and payer type. Level cohort range and date range are display filters applied after grouped statistics are cached. Percentage heatmap cells include numerator/sample counts in hover details and use gray shading when the sample count is below the selected threshold.

@@ -28,6 +28,16 @@ class PreAggregationFilters:
 
 
 @dataclass(frozen=True, slots=True)
+class DisplayFilters:
+    """Filters that can be applied to already-grouped metric rows."""
+
+    level_min: int | None = None
+    level_max: int | None = None
+    start_date: DateLike | None = None
+    end_date: DateLike | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MetricSelection:
     """Selected post-aggregation metric."""
 
@@ -57,6 +67,15 @@ def apply_pre_aggregation_filters(frame, criteria: PreAggregationFilters):
     if _is_spark_frame(frame):
         return _apply_pre_aggregation_filters_spark(frame, criteria)
     return _apply_pre_aggregation_filters_pandas(frame, criteria)
+
+
+def apply_grouped_display_filters(frame, criteria: DisplayFilters):
+    """Apply level and date filters after grouped statistics are available."""
+
+    _validate_level_range(criteria)
+    if _is_spark_frame(frame):
+        return _apply_grouped_display_filters_spark(frame, criteria)
+    return _apply_grouped_display_filters_pandas(frame, criteria)
 
 
 def collect_raw_filter_options(frame) -> RawFilterOptions:
@@ -111,6 +130,27 @@ def _apply_pre_aggregation_filters_pandas(
     return filtered.reset_index(drop=True)
 
 
+def _apply_grouped_display_filters_pandas(
+    frame: pd.DataFrame,
+    criteria: DisplayFilters,
+) -> pd.DataFrame:
+    filtered = frame.copy()
+    if filtered.empty:
+        return filtered
+
+    filtered["date"] = pd.to_datetime(filtered["date"]).dt.normalize()
+    if criteria.level_min is not None:
+        filtered = filtered[filtered["level_group"] >= criteria.level_min]
+    if criteria.level_max is not None:
+        filtered = filtered[filtered["level_group"] <= criteria.level_max]
+    if criteria.start_date is not None:
+        filtered = filtered[filtered["date"] >= _to_timestamp(criteria.start_date)]
+    if criteria.end_date is not None:
+        filtered = filtered[filtered["date"] <= _to_timestamp(criteria.end_date)]
+
+    return filtered.reset_index(drop=True)
+
+
 def _apply_pre_aggregation_filters_spark(frame, criteria: PreAggregationFilters):
     from pyspark.sql import functions as sql_functions
 
@@ -151,6 +191,25 @@ def _apply_pre_aggregation_filters_spark(frame, criteria: PreAggregationFilters)
     return filtered
 
 
+def _apply_grouped_display_filters_spark(frame, criteria: DisplayFilters):
+    from pyspark.sql import functions as sql_functions
+
+    filtered = frame
+    if criteria.level_min is not None:
+        filtered = filtered.filter(sql_functions.col("level_group") >= criteria.level_min)
+    if criteria.level_max is not None:
+        filtered = filtered.filter(sql_functions.col("level_group") <= criteria.level_max)
+    if criteria.start_date is not None:
+        filtered = filtered.filter(
+            sql_functions.col("date") >= _to_timestamp(criteria.start_date).date()
+        )
+    if criteria.end_date is not None:
+        filtered = filtered.filter(
+            sql_functions.col("date") <= _to_timestamp(criteria.end_date).date()
+        )
+    return filtered
+
+
 def _collect_raw_filter_options_spark(frame) -> RawFilterOptions:
     from pyspark.sql import functions as sql_functions
 
@@ -172,7 +231,7 @@ def _collect_raw_filter_options_spark(frame) -> RawFilterOptions:
     )
 
 
-def _validate_level_range(criteria: PreAggregationFilters) -> None:
+def _validate_level_range(criteria: PreAggregationFilters | DisplayFilters) -> None:
     if (
         criteria.level_min is not None
         and criteria.level_max is not None

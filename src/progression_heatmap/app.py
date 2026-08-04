@@ -24,7 +24,12 @@ from progression_heatmap.data_sources import (
     collect_filter_options_from_config,
     resolve_data_source,
 )
-from progression_heatmap.filters import MetricSelection, PreAggregationFilters
+from progression_heatmap.filters import (
+    DisplayFilters,
+    MetricSelection,
+    PreAggregationFilters,
+    apply_grouped_display_filters,
+)
 from progression_heatmap.heatmap import prepare_heatmap_table
 from progression_heatmap.metrics import (
     calculation_methods_for_metric,
@@ -36,6 +41,7 @@ from progression_heatmap.metrics import (
 MIN_HEATMAP_HEIGHT = 560
 MAX_HEATMAP_HEIGHT = 980
 HEATMAP_ROW_HEIGHT = 9
+STATISTICS_CACHE_MAX_ENTRIES = 10
 LOGGER = logging.getLogger(__name__)
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PROJECT_ICONS: dict[str, Path] = {
@@ -100,6 +106,7 @@ def main() -> None:
 
     project_key = _render_project_selector(config)
     _apply_page_style(_project_theme(project_key))
+    chart_slot = st.empty()
     data_source = resolve_data_source(config)
     LOGGER.info(
         "app.config.loaded environment=%s source=%s project=%s table=%s",
@@ -110,30 +117,45 @@ def main() -> None:
     )
     try:
         filter_started_at = perf_counter()
-        filter_options = _load_filter_options(config, project_key)
+        with chart_slot.container():
+            with st.spinner("Loading filter values..."):
+                filter_options = _load_filter_options(config, project_key)
         LOGGER.info(
             "app.filter_options.ui_ready project=%s elapsed_seconds=%.3f",
             project_key,
             perf_counter() - filter_started_at,
         )
-        pre_filters, metric_selection = _render_filters(filter_options)
+        aggregation_filters, display_filters, metric_selection = _render_filters(filter_options)
         statistics_started_at = perf_counter()
-        statistics = _compute_statistics(config, project_key, pre_filters)
+        with chart_slot.container():
+            with st.spinner("Loading heatmap data..."):
+                statistics = _compute_statistics(config, project_key, aggregation_filters)
         LOGGER.info(
-            "app.statistics.ui_ready project=%s rows=%s elapsed_seconds=%.3f",
+            "app.statistics.ui_ready project=%s rows=%s elapsed_seconds=%.3f "
+            "aggregation_filters=%s",
             project_key,
             len(statistics),
             perf_counter() - statistics_started_at,
+            aggregation_filters,
         )
     except DatabricksDataAccessError as exc:
-        _render_databricks_data_access_error(exc)
+        with chart_slot.container():
+            _render_databricks_data_access_error(exc)
         return
     except Exception as exc:
         LOGGER.exception("app.error project=%s source=%s", project_key, data_source)
-        _render_unexpected_error(exc)
+        with chart_slot.container():
+            _render_unexpected_error(exc)
         return
 
-    metric_values = select_metric_values_with_context(statistics, metric_selection)
+    display_statistics = apply_grouped_display_filters(statistics, display_filters)
+    LOGGER.info(
+        "app.statistics.display_filtered project=%s rows=%s display_filters=%s",
+        project_key,
+        len(display_statistics),
+        display_filters,
+    )
+    metric_values = select_metric_values_with_context(display_statistics, metric_selection)
     metric_values = to_pandas_frame(metric_values)
     heatmap_table = prepare_heatmap_table(metric_values, "value")
     LOGGER.info(
@@ -147,10 +169,11 @@ def main() -> None:
     if config.production_simulation and resolve_data_source(config) == "csv":
         st.warning("Local CSV source is active for this config.")
 
-    _render_heatmap(heatmap_table, metric_values)
+    with chart_slot.container():
+        _render_heatmap(heatmap_table, metric_values)
 
 
-@st.cache_data(show_spinner="Loading raw filter values...")
+@st.cache_data(show_spinner=False)
 def _load_filter_options(config: AppConfig, project_key: str):
     started_at = perf_counter()
     source = resolve_data_source(config)
@@ -179,23 +202,26 @@ def _load_filter_options(config: AppConfig, project_key: str):
     return options
 
 
-@st.cache_data(show_spinner="Grouping raw attempt data...")
+@st.cache_data(
+    show_spinner=False,
+    max_entries=STATISTICS_CACHE_MAX_ENTRIES,
+)
 def _compute_statistics(
     config: AppConfig,
     project_key: str,
-    pre_filters: PreAggregationFilters,
+    aggregation_filters: PreAggregationFilters,
 ) -> pd.DataFrame:
     started_at = perf_counter()
     source = resolve_data_source(config)
     LOGGER.info(
-        "app.statistics.start source=%s project=%s table=%s filters=%s",
+        "app.statistics.start source=%s project=%s table=%s aggregation_filters=%s",
         source,
         project_key,
         _configured_databricks_table(config, project_key),
-        pre_filters,
+        aggregation_filters,
     )
     try:
-        statistics = aggregate_statistics_from_config(config, project_key, pre_filters)
+        statistics = aggregate_statistics_from_config(config, project_key, aggregation_filters)
         statistics_frame = to_pandas_frame(statistics)
     except Exception:
         LOGGER.exception(
@@ -321,7 +347,9 @@ def _render_unexpected_error(error: Exception) -> None:
         st.code(f"{error.__class__.__name__}: {error}")
 
 
-def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelection]:
+def _render_filters(
+    filter_options,
+) -> tuple[PreAggregationFilters, DisplayFilters, MetricSelection]:
     st.sidebar.header("Filters")
 
     level_range = st.sidebar.slider(
@@ -386,19 +414,36 @@ def _render_filters(filter_options) -> tuple[PreAggregationFilters, MetricSelect
         )
 
     return PreAggregationFilters(
+        payer_types=_aggregation_filter_values(payer_types, filter_options.payer_types),
+        traffic_types=_aggregation_filter_values(traffic_types, filter_options.traffic_types),
+        platform_names=_aggregation_filter_values(
+            platform_names,
+            filter_options.platform_names,
+        ),
+        attempt_groups=_aggregation_filter_values(
+            attempt_groups,
+            filter_options.attempt_groups,
+        ),
+    ), DisplayFilters(
         level_min=level_range[0],
         level_max=level_range[1],
         start_date=start_date,
         end_date=end_date,
-        payer_types=tuple(payer_types),
-        traffic_types=tuple(traffic_types),
-        platform_names=tuple(platform_names),
-        attempt_groups=tuple(attempt_groups),
     ), MetricSelection(
         metric_name=selected_metric_name,
         calculation_method=selected_calculation_method,
         min_observations=int(min_observations),
     )
+
+
+def _aggregation_filter_values(
+    selected_options: tuple[str, ...],
+    all_options: tuple[str, ...],
+) -> tuple[str, ...]:
+    selected_set = set(selected_options)
+    if not selected_set or selected_set == set(all_options):
+        return ()
+    return tuple(option for option in all_options if option in selected_set)
 
 
 def _render_checkbox_filter_group(
@@ -619,6 +664,19 @@ def _apply_page_style(theme: ProjectTheme) -> None:
     st.markdown(
         f"""
         <style>
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stDecoration"],
+        header {{
+            display: none;
+        }}
+        [data-testid="stAppViewContainer"] {{
+            padding-top: 0;
+        }}
+        .main .block-container {{
+            padding-top: 1rem;
+        }}
         .stApp {{
             background: {theme.page_background};
             color: {theme.text_color};
