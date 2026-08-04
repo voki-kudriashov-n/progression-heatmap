@@ -317,7 +317,7 @@ def _project_selector_html(config: AppConfig, selected_key: str) -> str:
             f'<img src="{_project_icon_data_url(icon_path)}" alt="" />'
             "</a>"
         )
-    return f'<div class="project-selector-list">{"".join(links)}</div>'
+    return f'<nav class="project-switcher" aria-label="Game">{"".join(links)}</nav>'
 
 
 def _project_icon_data_url(icon_path: Path) -> str:
@@ -399,10 +399,11 @@ def _render_unexpected_error(error: Exception) -> None:
 def _render_filters(
     filter_options,
 ) -> tuple[ChartRequest, bool]:
-    st.sidebar.header("Filters")
+    st.sidebar.markdown('<div class="filters-title">Filters</div>', unsafe_allow_html=True)
 
+    st.sidebar.markdown('<div class="filters-section-title">View</div>', unsafe_allow_html=True)
     level_range = st.sidebar.slider(
-        "Level cohort range",
+        "Level cohort",
         min_value=filter_options.level_min,
         max_value=filter_options.level_max,
         value=(filter_options.level_min, filter_options.level_max),
@@ -411,7 +412,7 @@ def _render_filters(
     st.sidebar.caption(f"{level_range[0]} - {level_range[1]}")
 
     selected_dates = st.sidebar.date_input(
-        "Time range",
+        "Dates",
         value=(filter_options.date_min, filter_options.date_max),
         min_value=filter_options.date_min,
         max_value=filter_options.date_max,
@@ -422,6 +423,7 @@ def _render_filters(
         filter_options.date_max,
     )
 
+    st.sidebar.markdown('<div class="filters-section-title">Segments</div>', unsafe_allow_html=True)
     attempt_groups = _render_checkbox_filter_group(
         "Attempt group",
         filter_options.attempt_groups,
@@ -443,6 +445,7 @@ def _render_filters(
         "payer_type",
     )
 
+    st.sidebar.markdown('<div class="filters-section-title">Metric</div>', unsafe_allow_html=True)
     selected_metric_name = _render_radio_filter("Metric", tuple(metric_names()), "metric_name")
     methods = calculation_methods_for_metric(selected_metric_name)
     default_method_index = methods.index("relative") if "relative" in methods else 0
@@ -745,6 +748,18 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             background: {theme.sidebar_background};
             border-right: 1px solid {theme.sidebar_border};
         }}
+        [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+            padding: 0.8rem 1rem 1rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
+            display: none;
+        }}
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+            gap: 0.45rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stElementContainer"] {{
+            margin-bottom: 0;
+        }}
         [data-testid="stSidebar"] h1,
         [data-testid="stSidebar"] h2,
         [data-testid="stSidebar"] h3,
@@ -778,34 +793,64 @@ def _apply_page_style(theme: ProjectTheme) -> None:
         [data-testid="stSidebar"] .stButton button[kind="primary"] p {{
             color: {theme.accent_text};
         }}
-        .project-selector-list {{
-            display: flex;
-            gap: 0.8rem;
-            margin: 0.25rem 0 1.25rem 0;
+        .project-switcher {{
+            align-items: center;
+            background: {theme.panel_background};
+            border: 1px solid {theme.sidebar_border};
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: grid;
+            gap: 0.25rem;
+            grid-template-columns: repeat(2, 38px);
+            justify-content: center;
+            margin: 0 auto 0.75rem;
+            padding: 0.25rem;
+            width: min-content;
         }}
         .project-selector-link {{
             align-items: center;
             background: {theme.control_background};
-            border: 1px solid {theme.control_border};
-            border-radius: 6px;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            box-sizing: border-box;
             display: inline-flex;
-            height: 48px;
+            height: 38px;
             justify-content: center;
-            width: 48px;
+            transition: border-color 120ms ease, background 120ms ease;
+            width: 38px;
         }}
         .project-selector-link:hover {{
             border-color: {theme.control_hover};
         }}
         .project-selector-link.selected {{
             background: {theme.accent_background};
-            border-color: {theme.accent_background};
+            border-color: {theme.control_hover};
         }}
         .project-selector-link img {{
-            border-radius: 5px;
+            border-radius: 4px;
             display: block;
-            height: 36px;
+            height: 28px;
             object-fit: contain;
-            width: 36px;
+            width: 28px;
+        }}
+        .filters-title {{
+            color: {theme.text_color};
+            font-size: 1.02rem;
+            font-weight: 800;
+            line-height: 1.2;
+            margin: 0.1rem 0 0.35rem;
+        }}
+        .filters-section-title {{
+            color: {theme.muted_text_color};
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0;
+            line-height: 1;
+            margin: 0.65rem 0 0.12rem;
+            text-transform: uppercase;
+        }}
+        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] {{
+            margin-bottom: 0.2rem;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] {{
             background: {theme.panel_background};
@@ -813,7 +858,9 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             border-radius: 6px;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-            min-height: 2.4rem;
+            min-height: 2.25rem;
+            padding-bottom: 0.35rem;
+            padding-top: 0.35rem;
         }}
         [data-testid="stSidebar"] .stCheckbox label,
         [data-testid="stSidebar"] .stRadio label {{
