@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import inspect
 import logging
 import os
@@ -12,6 +13,7 @@ from datetime import date
 from pathlib import Path
 from time import perf_counter
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -274,29 +276,53 @@ def _render_project_selector(config: AppConfig) -> str:
         return config.default_project
 
     project_keys = config.project_keys
-    selected_key = st.session_state.get("selected_project_key")
+    query_project_key = _query_project_key(project_keys)
+    selected_key = query_project_key or st.session_state.get("selected_project_key")
     if selected_key not in project_keys:
         selected_key = (
             config.default_project if config.default_project in project_keys else project_keys[0]
         )
-        st.session_state.selected_project_key = selected_key
+    st.session_state.selected_project_key = selected_key
 
     with st.sidebar:
-        columns = st.columns(len(project_keys))
-        for column, project_key in zip(columns, project_keys, strict=False):
-            project = config.project(project_key)
-            with column:
-                button_type = "primary" if project_key == selected_key else "secondary"
-                if st.button(
-                    project.display_name,
-                    key=f"project_selector_{project_key}",
-                    type=button_type,
-                    **_stretch_width_kwargs(st.button),
-                ):
-                    st.session_state.selected_project_key = project_key
-                    st.rerun()
+        st.markdown(
+            _project_selector_html(config, selected_key),
+            unsafe_allow_html=True,
+        )
 
     return str(st.session_state.selected_project_key)
+
+
+def _query_project_key(project_keys: tuple[str, ...]) -> str | None:
+    raw_project_key = st.query_params.get("project")
+    if isinstance(raw_project_key, list):
+        raw_project_key = raw_project_key[0] if raw_project_key else None
+    if raw_project_key in project_keys:
+        return str(raw_project_key)
+    return None
+
+
+def _project_selector_html(config: AppConfig, selected_key: str) -> str:
+    links = []
+    for project_key in config.project_keys:
+        project = config.project(project_key)
+        icon_path = PROJECT_ICONS.get(project_key)
+        if icon_path is None or not icon_path.exists():
+            continue
+        selected_class = " selected" if project_key == selected_key else ""
+        label = html.escape(project.display_name, quote=True)
+        links.append(
+            f'<a class="project-selector-link{selected_class}" '
+            f'href="?project={quote(project_key)}" title="{label}" aria-label="{label}">'
+            f'<img src="{_project_icon_data_url(icon_path)}" alt="" />'
+            "</a>"
+        )
+    return f'<div class="project-selector-list">{"".join(links)}</div>'
+
+
+def _project_icon_data_url(icon_path: Path) -> str:
+    encoded_icon = base64.b64encode(icon_path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded_icon}"
 
 
 def _applied_chart_requests() -> dict[str, ChartRequest]:
@@ -694,22 +720,6 @@ def _stretch_width_kwargs(component: Any) -> dict[str, bool | str]:
     return {"use_container_width": True}
 
 
-def _project_button_icon_css() -> str:
-    rules = []
-    for project_key, icon_path in PROJECT_ICONS.items():
-        if not icon_path.exists():
-            continue
-        encoded_icon = base64.b64encode(icon_path.read_bytes()).decode("ascii")
-        rules.append(
-            f"""
-        [data-testid="stSidebar"] .st-key-project_selector_{project_key} .stButton button {{
-            background-image: url("data:image/png;base64,{encoded_icon}");
-        }}
-        """,
-        )
-    return "\n".join(rules)
-
-
 def _apply_page_style(theme: ProjectTheme) -> None:
     st.markdown(
         f"""
@@ -768,19 +778,34 @@ def _apply_page_style(theme: ProjectTheme) -> None:
         [data-testid="stSidebar"] .stButton button[kind="primary"] p {{
             color: {theme.accent_text};
         }}
-        {_project_button_icon_css()}
-        [data-testid="stSidebar"] [class*="st-key-project_selector_"] .stButton button {{
-            background-position: center;
-            background-repeat: no-repeat;
-            background-size: 36px 36px;
-            min-height: 48px;
-            padding: 0;
+        .project-selector-list {{
+            display: flex;
+            gap: 0.8rem;
+            margin: 0.25rem 0 1.25rem 0;
+        }}
+        .project-selector-link {{
+            align-items: center;
+            background: {theme.control_background};
+            border: 1px solid {theme.control_border};
+            border-radius: 6px;
+            display: inline-flex;
+            height: 48px;
+            justify-content: center;
             width: 48px;
         }}
-        [data-testid="stSidebar"] [class*="st-key-project_selector_"] .stButton button p {{
-            color: transparent;
-            font-size: 0;
-            line-height: 0;
+        .project-selector-link:hover {{
+            border-color: {theme.control_hover};
+        }}
+        .project-selector-link.selected {{
+            background: {theme.accent_background};
+            border-color: {theme.accent_background};
+        }}
+        .project-selector-link img {{
+            border-radius: 5px;
+            display: block;
+            height: 36px;
+            object-fit: contain;
+            width: 36px;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] {{
             background: {theme.panel_background};
