@@ -44,6 +44,8 @@ MIN_HEATMAP_HEIGHT = 560
 MAX_HEATMAP_HEIGHT = 980
 HEATMAP_ROW_HEIGHT = 9
 STATISTICS_CACHE_MAX_ENTRIES = 10
+WORKSPACE_BACKGROUND = "#000000"
+CHART_TEXT_COLOR = "#d7dee6"
 LOGGER = logging.getLogger(__name__)
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PROJECT_ICONS: dict[str, Path] = {
@@ -128,8 +130,8 @@ def main() -> None:
     )
     try:
         filter_started_at = perf_counter()
-        with chart_slot.container():
-            with st.spinner("Loading filter values..."):
+        with st.sidebar:
+            with st.spinner("Loading filters..."):
                 filter_options = _load_filter_options(config, project_key)
         LOGGER.info(
             "app.filter_options.ui_ready project=%s elapsed_seconds=%.3f",
@@ -147,13 +149,43 @@ def main() -> None:
             return
 
         statistics_started_at = perf_counter()
+        loading_message = "Updating heatmap..." if apply_requested else "Loading heatmap..."
         with chart_slot.container():
-            with st.spinner("Loading heatmap data..."):
+            with st.spinner(loading_message):
                 statistics = _compute_statistics(
                     config,
                     project_key,
                     chart_request.aggregation_filters,
                 )
+                display_statistics = apply_grouped_display_filters(
+                    statistics,
+                    chart_request.display_filters,
+                )
+                LOGGER.info(
+                    "app.statistics.display_filtered project=%s rows=%s display_filters=%s",
+                    project_key,
+                    len(display_statistics),
+                    chart_request.display_filters,
+                )
+                metric_values = select_metric_values_with_context(
+                    display_statistics,
+                    chart_request.metric_selection,
+                )
+                metric_values = to_pandas_frame(metric_values)
+                heatmap_table = prepare_heatmap_table(metric_values, "value")
+                LOGGER.info(
+                    "app.render_heatmap.ready project=%s metric_rows=%s "
+                    "heatmap_rows=%s heatmap_columns=%s",
+                    project_key,
+                    len(metric_values),
+                    len(heatmap_table.index),
+                    len(heatmap_table.columns),
+                )
+
+                if config.production_simulation and resolve_data_source(config) == "csv":
+                    st.warning("Local CSV source is active for this config.")
+
+                _render_heatmap(heatmap_table, metric_values)
         LOGGER.info(
             "app.statistics.ui_ready project=%s rows=%s elapsed_seconds=%.3f "
             "aggregation_filters=%s",
@@ -171,36 +203,6 @@ def main() -> None:
         with chart_slot.container():
             _render_unexpected_error(exc)
         return
-
-    display_statistics = apply_grouped_display_filters(
-        statistics,
-        chart_request.display_filters,
-    )
-    LOGGER.info(
-        "app.statistics.display_filtered project=%s rows=%s display_filters=%s",
-        project_key,
-        len(display_statistics),
-        chart_request.display_filters,
-    )
-    metric_values = select_metric_values_with_context(
-        display_statistics,
-        chart_request.metric_selection,
-    )
-    metric_values = to_pandas_frame(metric_values)
-    heatmap_table = prepare_heatmap_table(metric_values, "value")
-    LOGGER.info(
-        "app.render_heatmap.ready project=%s metric_rows=%s heatmap_rows=%s heatmap_columns=%s",
-        project_key,
-        len(metric_values),
-        len(heatmap_table.index),
-        len(heatmap_table.columns),
-    )
-
-    if config.production_simulation and resolve_data_source(config) == "csv":
-        st.warning("Local CSV source is active for this config.")
-
-    with chart_slot.container():
-        _render_heatmap(heatmap_table, metric_values)
 
 
 @st.cache_data(show_spinner=False)
@@ -399,78 +401,81 @@ def _render_unexpected_error(error: Exception) -> None:
 def _render_filters(
     filter_options,
 ) -> tuple[ChartRequest, bool]:
-    st.sidebar.markdown('<div class="filters-title">Filters</div>', unsafe_allow_html=True)
+    with st.sidebar.form("filters_form", border=False):
+        st.markdown('<div class="filters-title">Filters</div>', unsafe_allow_html=True)
 
-    st.sidebar.markdown('<div class="filters-section-title">View</div>', unsafe_allow_html=True)
-    level_range = st.sidebar.slider(
-        "Level cohort",
-        min_value=filter_options.level_min,
-        max_value=filter_options.level_max,
-        value=(filter_options.level_min, filter_options.level_max),
-        step=1,
-    )
-    st.sidebar.caption(f"{level_range[0]} - {level_range[1]}")
+        st.markdown('<div class="filters-section-title">View</div>', unsafe_allow_html=True)
+        level_range = st.slider(
+            "Level cohort",
+            min_value=filter_options.level_min,
+            max_value=filter_options.level_max,
+            value=(filter_options.level_min, filter_options.level_max),
+            step=1,
+        )
+        st.caption(f"{level_range[0]} - {level_range[1]}")
 
-    selected_dates = st.sidebar.date_input(
-        "Dates",
-        value=(filter_options.date_min, filter_options.date_max),
-        min_value=filter_options.date_min,
-        max_value=filter_options.date_max,
-    )
-    start_date, end_date = _coerce_date_range(
-        selected_dates,
-        filter_options.date_min,
-        filter_options.date_max,
-    )
-
-    st.sidebar.markdown('<div class="filters-section-title">Segments</div>', unsafe_allow_html=True)
-    attempt_groups = _render_checkbox_filter_group(
-        "Attempt group",
-        filter_options.attempt_groups,
-        "attempt_group",
-    )
-    platform_names = _render_checkbox_filter_group(
-        "Platform",
-        filter_options.platform_names,
-        "platform",
-    )
-    traffic_types = _render_checkbox_filter_group(
-        "Traffic type",
-        filter_options.traffic_types,
-        "traffic_type",
-    )
-    payer_types = _render_checkbox_filter_group(
-        "Payer type",
-        filter_options.payer_types,
-        "payer_type",
-    )
-
-    st.sidebar.markdown('<div class="filters-section-title">Metric</div>', unsafe_allow_html=True)
-    selected_metric_name = _render_radio_filter("Metric", tuple(metric_names()), "metric_name")
-    methods = calculation_methods_for_metric(selected_metric_name)
-    default_method_index = methods.index("relative") if "relative" in methods else 0
-    selected_calculation_method = _render_radio_filter(
-        "Calculation method",
-        tuple(methods),
-        f"calculation_method_{selected_metric_name}",
-        default_index=default_method_index,
-    )
-    min_observations = 1000
-    if selected_calculation_method in {"relative", "partial_relative"}:
-        min_observations = st.sidebar.number_input(
-            "Minimum observations",
-            min_value=0,
-            max_value=10_000_000,
-            value=1000,
-            step=100,
+        selected_dates = st.date_input(
+            "Dates",
+            value=(filter_options.date_min, filter_options.date_max),
+            min_value=filter_options.date_min,
+            max_value=filter_options.date_max,
+        )
+        start_date, end_date = _coerce_date_range(
+            selected_dates,
+            filter_options.date_min,
+            filter_options.date_max,
         )
 
-    apply_requested = st.sidebar.button(
-        "Apply",
-        key="apply_filters",
-        type="primary",
-        **_stretch_width_kwargs(st.button),
-    )
+        st.markdown(
+            '<div class="filters-section-title">Segments</div>',
+            unsafe_allow_html=True,
+        )
+        attempt_groups = _render_checkbox_filter_group(
+            "Attempt group",
+            filter_options.attempt_groups,
+            "attempt_group",
+        )
+        platform_names = _render_checkbox_filter_group(
+            "Platform",
+            filter_options.platform_names,
+            "platform",
+        )
+        traffic_types = _render_checkbox_filter_group(
+            "Traffic type",
+            filter_options.traffic_types,
+            "traffic_type",
+        )
+        payer_types = _render_checkbox_filter_group(
+            "Payer type",
+            filter_options.payer_types,
+            "payer_type",
+        )
+
+        st.markdown('<div class="filters-section-title">Metric</div>', unsafe_allow_html=True)
+        selected_metric_name = _render_radio_filter("Metric", tuple(metric_names()), "metric_name")
+        methods = calculation_methods_for_metric(selected_metric_name)
+        default_method_index = methods.index("relative") if "relative" in methods else 0
+        selected_calculation_method = _render_radio_filter(
+            "Calculation method",
+            tuple(methods),
+            f"calculation_method_{selected_metric_name}",
+            default_index=default_method_index,
+        )
+        min_observations = 1000
+        if selected_calculation_method in {"relative", "partial_relative"}:
+            min_observations = st.number_input(
+                "Minimum observations",
+                min_value=0,
+                max_value=10_000_000,
+                value=1000,
+                step=100,
+            )
+
+        apply_requested = st.form_submit_button(
+            "Apply",
+            type="primary",
+            **_stretch_width_kwargs(st.form_submit_button),
+        )
 
     return ChartRequest(
         aggregation_filters=PreAggregationFilters(
@@ -518,12 +523,8 @@ def _render_checkbox_filter_group(
     if not option_list:
         return ()
 
-    selected_count = sum(
-        bool(st.session_state.get(_checkbox_filter_key(key_prefix, option), True))
-        for option in option_list
-    )
     selected_options = []
-    with st.sidebar.expander(f"{label} ({selected_count}/{len(option_list)})", expanded=False):
+    with st.expander(label, expanded=False):
         for option in option_list:
             if st.checkbox(
                 option,
@@ -555,7 +556,7 @@ def _render_radio_filter(
         st.session_state[state_key] = option_list[default_index]
 
     selected_value = str(st.session_state[state_key])
-    with st.sidebar.expander(f"{label}: {selected_value}", expanded=False):
+    with st.expander(label, expanded=False):
         selected_value = st.radio(
             label,
             option_list,
@@ -643,12 +644,12 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
         )
     figure.update_layout(
         dragmode="zoom",
-        font={"color": "#d7dee6"},
+        font={"color": CHART_TEXT_COLOR},
         height=height,
         margin={"l": 56, "r": 24, "t": 8, "b": 48},
         modebar={"activecolor": "#d47a00", "color": "#9fb2c0"},
-        paper_bgcolor="#0f171d",
-        plot_bgcolor="#0b1117",
+        paper_bgcolor=WORKSPACE_BACKGROUND,
+        plot_bgcolor=WORKSPACE_BACKGROUND,
     )
     figure.update_xaxes(
         dtick="M1",
@@ -738,11 +739,21 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             padding-top: 0;
         }}
         .main .block-container {{
+            background: {WORKSPACE_BACKGROUND};
             padding-top: 1rem;
         }}
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        [data-testid="stMainBlockContainer"],
+        .main {{
+            background: {WORKSPACE_BACKGROUND};
+        }}
         .stApp {{
-            background: {theme.page_background};
-            color: {theme.text_color};
+            background: {WORKSPACE_BACKGROUND};
+            color: {CHART_TEXT_COLOR};
+        }}
+        [data-testid="stPlotlyChart"] {{
+            background: {WORKSPACE_BACKGROUND};
         }}
         [data-testid="stSidebar"] {{
             background: {theme.sidebar_background};
