@@ -51,16 +51,6 @@
       pointer-events: none;
     }
 
-    .slider-lane {
-      border-right: 2px solid rgba(255, 255, 255, 0.92);
-      bottom: 0;
-      pointer-events: none;
-      position: absolute;
-      right: 4px;
-      top: 0;
-      width: 1px;
-    }
-
     .gradient-handle {
       cursor: ns-resize;
       height: 18px;
@@ -99,8 +89,8 @@
       color: #f3f4f6;
       font-size: 11px;
       font-weight: 700;
-      left: 38px;
-      line-height: 1;
+      left: 50px;
+      line-height: 1.1;
       pointer-events: none;
       position: absolute;
       transform: translateY(-50%);
@@ -119,7 +109,6 @@
   >
     <div class="gradient-rail"></div>
     <div id="gradient-segment" class="gradient-segment"></div>
-    <div class="slider-lane"></div>
     <div id="upper-handle" class="gradient-handle" data-handle="maximum"></div>
     <div id="lower-handle" class="gradient-handle" data-handle="minimum"></div>
   </div>
@@ -236,9 +225,10 @@
     function renderTicks() {
       root.querySelectorAll(".gradient-tick").forEach((tick) => tick.remove());
       tickValues().forEach((value) => {
+        const position = clamp(valueToTopPercent(value), 1.4, 98.6);
         const tick = document.createElement("div");
         tick.className = "gradient-tick";
-        tick.style.top = `${valueToTopPercent(value)}%`;
+        tick.style.top = `${position}%`;
         tick.textContent = tickLabel(value);
         root.appendChild(tick);
       });
