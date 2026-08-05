@@ -405,14 +405,26 @@ def _render_filters(
         st.markdown('<div class="filters-title">Filters</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="filters-section-title">View</div>', unsafe_allow_html=True)
-        level_range = st.slider(
-            "Level cohort",
-            min_value=filter_options.level_min,
-            max_value=filter_options.level_max,
-            value=(filter_options.level_min, filter_options.level_max),
-            step=1,
-        )
-        st.caption(f"{level_range[0]} - {level_range[1]}")
+        st.markdown('<div class="filter-field-title">Level cohort</div>', unsafe_allow_html=True)
+        min_level_column, max_level_column = st.columns(2)
+        with min_level_column:
+            raw_level_min = st.number_input(
+                "Min",
+                min_value=filter_options.level_min,
+                max_value=filter_options.level_max,
+                value=filter_options.level_min,
+                step=1,
+            )
+        with max_level_column:
+            raw_level_max = st.number_input(
+                "Max",
+                min_value=filter_options.level_min,
+                max_value=filter_options.level_max,
+                value=filter_options.level_max,
+                step=1,
+            )
+        level_min = min(int(raw_level_min), int(raw_level_max))
+        level_max = max(int(raw_level_min), int(raw_level_max))
 
         selected_dates = st.date_input(
             "Dates",
@@ -491,8 +503,8 @@ def _render_filters(
             ),
         ),
         display_filters=DisplayFilters(
-            level_min=level_range[0],
-            level_max=level_range[1],
+            level_min=level_min,
+            level_max=level_max,
             start_date=start_date,
             end_date=end_date,
         ),
@@ -769,7 +781,14 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             gap: 0.45rem;
         }}
         [data-testid="stSidebar"] [data-testid="stElementContainer"] {{
-            margin-bottom: 0;
+            margin-bottom: 0.2rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.filters-title) {{
+            margin-bottom: 0.45rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.filters-section-title) {{
+            margin-bottom: 0.55rem;
+            margin-top: 0.45rem;
         }}
         [data-testid="stSidebar"] h1,
         [data-testid="stSidebar"] h2,
@@ -849,24 +868,41 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             font-size: 1.02rem;
             font-weight: 800;
             line-height: 1.2;
-            margin: 0.1rem 0 0.35rem;
+            margin: 0.1rem 0 0.55rem;
         }}
         .filters-section-title {{
             color: {theme.muted_text_color};
+            display: block;
             font-size: 0.72rem;
             font-weight: 800;
             letter-spacing: 0;
-            line-height: 1;
-            margin: 0.65rem 0 0.12rem;
+            line-height: 1.2;
+            margin: 0;
+            padding: 0.1rem 0 0.45rem;
             text-transform: uppercase;
+        }}
+        .filter-field-title {{
+            color: {theme.text_color};
+            font-size: 0.92rem;
+            font-weight: 700;
+            line-height: 1.15;
+            margin: 0 0 0.35rem;
         }}
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"] {{
             margin-bottom: 0.2rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="column"] {{
+            min-width: 0;
+        }}
+        [data-testid="stSidebar"] [data-baseweb="input"] {{
+            background: {theme.control_background};
+            border-radius: 6px;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] {{
             background: {theme.panel_background};
             border: 1px solid {theme.sidebar_border};
             border-radius: 6px;
+            margin-top: 0.15rem;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
             min-height: 2.25rem;
@@ -886,10 +922,6 @@ def _apply_page_style(theme: ProjectTheme) -> None:
         [data-testid="stSidebar"] [data-baseweb="input"] input {{
             background: {theme.control_background};
             color: {theme.text_color};
-        }}
-        [data-testid="stSidebar"] [data-testid="stSliderThumbValue"],
-        [data-testid="stSidebar"] [data-testid="stSliderTickBar"] {{
-            display: none;
         }}
         </style>
         """,
