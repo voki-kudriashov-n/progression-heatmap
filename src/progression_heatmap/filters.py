@@ -11,6 +11,7 @@ DateLike = str | date | datetime | pd.Timestamp
 ATTEMPT_GROUP_FIRST = "1 attempt"
 ATTEMPT_GROUP_REPEAT = "2+ attempts"
 ATTEMPT_GROUPS = (ATTEMPT_GROUP_FIRST, ATTEMPT_GROUP_REPEAT)
+SUPER_BALL_VALUES = (True, False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,7 @@ class PreAggregationFilters:
     traffic_types: tuple[str, ...] = ()
     platform_names: tuple[str, ...] = ()
     attempt_groups: tuple[str, ...] = ()
+    super_ball_values: tuple[bool, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +60,7 @@ class RawFilterOptions:
     traffic_types: tuple[str, ...]
     platform_names: tuple[str, ...]
     attempt_groups: tuple[str, ...]
+    super_ball_values: tuple[bool, ...]
 
 
 def apply_pre_aggregation_filters(frame, criteria: PreAggregationFilters):
@@ -92,6 +95,7 @@ def collect_raw_filter_options(frame) -> RawFilterOptions:
         traffic_types=tuple(sorted_unique_values(frame, "traffic_type")),
         platform_names=tuple(sorted_unique_values(frame, "platform_name")),
         attempt_groups=tuple(_attempt_groups_pandas(frame)),
+        super_ball_values=tuple(_super_ball_values_pandas(frame)),
     )
 
 
@@ -126,6 +130,8 @@ def _apply_pre_aggregation_filters_pandas(
         filtered = filtered[filtered["platform_name"].isin(criteria.platform_names)]
     if _should_filter_attempt_groups(criteria.attempt_groups):
         filtered = filtered[_attempt_group_mask_pandas(filtered, criteria.attempt_groups)]
+    if _should_filter_super_ball(criteria.super_ball_values):
+        filtered = filtered[filtered["super_ball"].isin(criteria.super_ball_values)]
 
     return filtered.reset_index(drop=True)
 
@@ -188,6 +194,10 @@ def _apply_pre_aggregation_filters_spark(frame, criteria: PreAggregationFilters)
             for condition in conditions[1:]:
                 attempt_condition = attempt_condition | condition
             filtered = filtered.filter(attempt_condition)
+    if _should_filter_super_ball(criteria.super_ball_values):
+        filtered = filtered.filter(
+            sql_functions.col("super_ball").isin(list(criteria.super_ball_values))
+        )
     return filtered
 
 
@@ -228,6 +238,7 @@ def _collect_raw_filter_options_spark(frame) -> RawFilterOptions:
         traffic_types=tuple(sorted_unique_values(frame, "traffic_type")),
         platform_names=tuple(sorted_unique_values(frame, "platform_name")),
         attempt_groups=tuple(_attempt_groups_spark(frame)),
+        super_ball_values=tuple(_super_ball_values_spark(frame)),
     )
 
 
@@ -273,8 +284,40 @@ def _attempt_groups_spark(frame) -> list[str]:
     return groups
 
 
+def _super_ball_values_pandas(frame: pd.DataFrame) -> list[bool]:
+    values = []
+    if frame["super_ball"].eq(True).any():
+        values.append(True)
+    if frame["super_ball"].eq(False).any():
+        values.append(False)
+    return values
+
+
+def _super_ball_values_spark(frame) -> list[bool]:
+    from pyspark.sql import functions as sql_functions
+
+    row = frame.agg(
+        sql_functions.max(
+            sql_functions.when(sql_functions.col("super_ball") == True, 1).otherwise(0)  # noqa: E712
+        ).alias("has_true"),
+        sql_functions.max(
+            sql_functions.when(sql_functions.col("super_ball") == False, 1).otherwise(0)  # noqa: E712
+        ).alias("has_false"),
+    ).first()
+    values = []
+    if row["has_true"]:
+        values.append(True)
+    if row["has_false"]:
+        values.append(False)
+    return values
+
+
 def _should_filter_attempt_groups(attempt_groups: tuple[str, ...]) -> bool:
     return bool(attempt_groups) and set(attempt_groups) != set(ATTEMPT_GROUPS)
+
+
+def _should_filter_super_ball(super_ball_values: tuple[bool, ...]) -> bool:
+    return bool(super_ball_values) and set(super_ball_values) != set(SUPER_BALL_VALUES)
 
 
 def _attempt_group_mask_pandas(

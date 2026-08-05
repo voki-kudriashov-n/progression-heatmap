@@ -89,6 +89,16 @@ def test_attempt_group_filter(sample_frame: pd.DataFrame) -> None:
     assert repeat_attempts["attempt"].ge(2).all()
 
 
+def test_super_ball_filter(sample_frame: pd.DataFrame) -> None:
+    filtered = apply_pre_aggregation_filters(
+        sample_frame,
+        PreAggregationFilters(super_ball_values=(True,)),
+    )
+
+    assert not filtered.empty
+    assert filtered["super_ball"].eq(True).all()
+
+
 def test_raw_filter_options(sample_frame: pd.DataFrame) -> None:
     options = collect_raw_filter_options(sample_frame)
 
@@ -100,6 +110,7 @@ def test_raw_filter_options(sample_frame: pd.DataFrame) -> None:
     assert "organic" in options.traffic_types
     assert "android" in options.platform_names
     assert options.attempt_groups == (ATTEMPT_GROUP_FIRST, ATTEMPT_GROUP_REPEAT)
+    assert options.super_ball_values == (True, False)
 
 
 def test_metric_selection_requires_supported_values() -> None:

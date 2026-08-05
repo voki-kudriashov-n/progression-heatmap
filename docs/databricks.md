@@ -60,15 +60,15 @@ databricks_table = "game_data_prod.analytics_voki.raw_objects_mm_test_users"
 
 There are no fallbacks between these modes. If the app is in Databricks mode and the warehouse id or service principal environment variables are missing, startup/querying fails with an explicit error.
 
-In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds, attempt groups, and distinct filter values are collected with one SQL warehouse query. Grouped metric statistics are pushed down to a second query after the user selects aggregation filters (`attempt` group, payer type, traffic type, and platform), and only compact result sets are returned to pandas for rendering.
+In Databricks mode the app does not fetch the full raw table into Streamlit. Filter bounds, attempt groups, `super_ball` values, and distinct filter values are collected with one SQL warehouse query. Grouped metric statistics are pushed down to a second query after the user selects aggregation filters (`attempt` group, payer type, traffic type, platform, and `super_ball`), and only compact result sets are returned to pandas for rendering.
 
-The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample shading. The `1 attempt` / `2+ attempts` filter is pushed into the SQL `where` clause.
+The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample filtering. The `1 attempt` / `2+ attempts` filter and `super_ball` filter are pushed into the SQL `where` clause.
 
 The app starts SQL aggregation only after the user clicks `Apply`. It keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
 
 The app writes INFO diagnostics to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
-The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, and `level_cohort`.
+The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, `level_cohort`, and `super_ball`.
 
 The table names are intentionally configured per project. The project selector chooses the source table; it is not implemented as a filter inside one shared table.
 

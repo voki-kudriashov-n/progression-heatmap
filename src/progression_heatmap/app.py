@@ -8,6 +8,7 @@ import html
 import inspect
 import logging
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -46,11 +47,39 @@ HEATMAP_ROW_HEIGHT = 9
 STATISTICS_CACHE_MAX_ENTRIES = 10
 WORKSPACE_BACKGROUND = "#000000"
 CHART_TEXT_COLOR = "#d7dee6"
+MIN_OBSERVATIONS_DEFAULT = 0
 LOGGER = logging.getLogger(__name__)
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PROJECT_ICONS: dict[str, Path] = {
     "MM": ASSETS_DIR / "mm_icon.png",
     "MyM": ASSETS_DIR / "mym_icon.png",
+}
+ATTEMPT_GROUP_LABELS = {
+    "1 attempt": "1 попытка",
+    "2+ attempts": "2+ попытки",
+}
+BOOLEAN_LABELS = {
+    True: "Да",
+    False: "Нет",
+}
+METRIC_LABELS = {
+    "CF": "CF",
+    "CW": "CW",
+    "FF": "FF",
+    "FW": "FW",
+    "attempts": "Попытки",
+    "attempt": "Средняя попытка",
+    "failed": "Проигрыши",
+    "wins": "Победы",
+    "fail_rate": "% проигрышей",
+    "win_rate": "% побед",
+    "first_attempt": "Первые попытки",
+}
+CALCULATION_METHOD_LABELS = {
+    "absolute": "Абсолютное",
+    "relative": "Процент",
+    "partial_relative": "Процент внутри исхода",
+    "average": "Среднее",
 }
 
 
@@ -95,17 +124,17 @@ PROJECT_THEMES: dict[str, ProjectTheme] = {
         muted_text_color="#d7b77a",
     ),
     "MyM": ProjectTheme(
-        page_background="#f5f8ff",
-        sidebar_background="#ffffff",
-        sidebar_border="#cad8f0",
-        panel_background="#edf3ff",
+        page_background="#eef5ff",
+        sidebar_background="#eef5ff",
+        sidebar_border="#4f70ba",
+        panel_background="#dce9ff",
         control_background="#ffffff",
-        control_border="#b9c9e8",
-        control_hover="#4f70ba",
+        control_border="#4f70ba",
+        control_hover="#244f9e",
         accent_background="#4f70ba",
         accent_text="#ffffff",
-        text_color="#172642",
-        muted_text_color="#5d7096",
+        text_color="#18386a",
+        muted_text_color="#4f70ba",
     ),
 }
 
@@ -131,7 +160,7 @@ def main() -> None:
     try:
         filter_started_at = perf_counter()
         with st.sidebar:
-            with st.spinner("Loading filters..."):
+            with st.spinner("Загрузка фильтров..."):
                 filter_options = _load_filter_options(config, project_key)
         LOGGER.info(
             "app.filter_options.ui_ready project=%s elapsed_seconds=%.3f",
@@ -145,13 +174,14 @@ def main() -> None:
         chart_request = _applied_chart_requests().get(project_key)
         if chart_request is None:
             with chart_slot.container():
-                st.info("Select filters and apply them to render the heatmap.")
+                st.info("Выберите фильтры и нажмите «Применить», чтобы построить heatmap.")
             return
 
         statistics_started_at = perf_counter()
-        loading_message = "Updating heatmap..." if apply_requested else "Loading heatmap..."
+        loading_message = "Обновление heatmap..." if apply_requested else "Загрузка heatmap..."
         with chart_slot.container():
-            with st.spinner(loading_message):
+            loading_context = st.spinner(loading_message) if apply_requested else nullcontext()
+            with loading_context:
                 statistics = _compute_statistics(
                     config,
                     project_key,
@@ -183,9 +213,13 @@ def main() -> None:
                 )
 
                 if config.production_simulation and resolve_data_source(config) == "csv":
-                    st.warning("Local CSV source is active for this config.")
+                    st.warning("Для этой конфигурации активен локальный CSV.")
 
-                _render_heatmap(heatmap_table, metric_values)
+                _render_heatmap(
+                    heatmap_table,
+                    metric_values,
+                    color_range_key=_chart_request_digest(project_key, chart_request),
+                )
         LOGGER.info(
             "app.statistics.ui_ready project=%s rows=%s elapsed_seconds=%.3f "
             "aggregation_filters=%s",
@@ -334,6 +368,11 @@ def _applied_chart_requests() -> dict[str, ChartRequest]:
     return st.session_state[state_key]
 
 
+def _chart_request_digest(project_key: str, chart_request: ChartRequest) -> str:
+    raw_key = f"{project_key}:{chart_request!r}"
+    return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()[:12]
+
+
 def _configured_databricks_table(config: AppConfig, project_key: str) -> str | None:
     if not config.projects:
         return None
@@ -370,31 +409,31 @@ def _configure_logging() -> None:
 
 
 def _render_databricks_data_access_error(error: DatabricksDataAccessError) -> None:
-    st.error("Databricks SQL source is not accessible to this app.")
+    st.error("Приложение не может прочитать источник Databricks SQL.")
     st.write(
-        "The app runs as its own Databricks service principal. Notebook access with "
-        "your user does not automatically grant this app access to Unity Catalog data."
+        "Databricks App работает от имени своего service principal. Доступ из ноутбука "
+        "под вашим пользователем не выдает приложению доступ к Unity Catalog автоматически."
     )
     if error.is_gateway_error:
         st.info(
-            "The SQL connector received a 502/Bad Gateway response. Check App logs for "
-            "`databricks_sql.*.connect.start`, `execute.start`, and `fetch.start`. "
-            "Pay special attention to `host_kind`, `http_path`, and the last marker before "
-            "the error."
+            "SQL connector получил 502/Bad Gateway. Проверьте App logs по маркерам "
+            "`databricks_sql.*.connect.start`, `execute.start` и `fetch.start`. "
+            "Особенно важны `host_kind`, `http_path` и последний маркер перед ошибкой."
         )
     if error.is_permission_error:
         st.info(
-            "Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and `SELECT` "
-            f"for `{error.table_name}`. The SQL warehouse resource also needs `Can use`."
+            "Выдайте app service principal права `USE CATALOG`, `USE SCHEMA` и `SELECT` "
+            f"на `{error.table_name}`. Для SQL warehouse также нужно право `Can use`."
         )
-    with st.expander("Databricks error", expanded=False):
+    with st.expander("Ошибка Databricks", expanded=False):
         st.code(f"{error.original_error_class}: {error.original_message}")
 
 
 def _render_unexpected_error(error: Exception) -> None:
-    st.error("The dashboard hit an unexpected error while loading data.")
-    st.write("Check the Databricks App logs for the matching `app.error` traceback.")
-    with st.expander("Error details", expanded=False):
+    st.error("При загрузке данных произошла непредвиденная ошибка.")
+    marker = "app.error"
+    st.write(f"Проверьте Databricks App logs и traceback возле маркера `{marker}`.")
+    with st.expander("Детали ошибки", expanded=False):
         st.code(f"{error.__class__.__name__}: {error}")
 
 
@@ -402,14 +441,14 @@ def _render_filters(
     filter_options,
 ) -> tuple[ChartRequest, bool]:
     with st.sidebar.form("filters_form", border=False):
-        st.markdown('<div class="filters-title">Filters</div>', unsafe_allow_html=True)
+        st.markdown('<div class="filters-title">Фильтры</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="filters-section-title">View</div>', unsafe_allow_html=True)
-        st.markdown('<div class="filter-field-title">Level cohort</div>', unsafe_allow_html=True)
+        st.markdown('<div class="filters-section-title">Вид</div>', unsafe_allow_html=True)
+        st.markdown('<div class="filter-field-title">Когорта уровней</div>', unsafe_allow_html=True)
         min_level_column, max_level_column = st.columns(2)
         with min_level_column:
             raw_level_min = st.number_input(
-                "Min",
+                "Мин.",
                 min_value=filter_options.level_min,
                 max_value=filter_options.level_max,
                 value=filter_options.level_min,
@@ -417,7 +456,7 @@ def _render_filters(
             )
         with max_level_column:
             raw_level_max = st.number_input(
-                "Max",
+                "Макс.",
                 min_value=filter_options.level_min,
                 max_value=filter_options.level_max,
                 value=filter_options.level_max,
@@ -427,7 +466,7 @@ def _render_filters(
         level_max = max(int(raw_level_min), int(raw_level_max))
 
         selected_dates = st.date_input(
-            "Dates",
+            "Даты",
             value=(filter_options.date_min, filter_options.date_max),
             min_value=filter_options.date_min,
             max_value=filter_options.date_max,
@@ -439,52 +478,65 @@ def _render_filters(
         )
 
         st.markdown(
-            '<div class="filters-section-title">Segments</div>',
+            '<div class="filters-section-title">Сегменты</div>',
             unsafe_allow_html=True,
         )
         attempt_groups = _render_checkbox_filter_group(
-            "Attempt group",
+            "Попытки",
             filter_options.attempt_groups,
             "attempt_group",
+            format_func=_attempt_group_label,
         )
         platform_names = _render_checkbox_filter_group(
-            "Platform",
+            "Платформа",
             filter_options.platform_names,
             "platform",
         )
         traffic_types = _render_checkbox_filter_group(
-            "Traffic type",
+            "Тип трафика",
             filter_options.traffic_types,
             "traffic_type",
         )
         payer_types = _render_checkbox_filter_group(
-            "Payer type",
+            "Тип игрока",
             filter_options.payer_types,
             "payer_type",
         )
+        super_ball_values = _render_checkbox_filter_group(
+            "ДРШ активирован",
+            filter_options.super_ball_values,
+            "super_ball",
+            format_func=_boolean_label,
+        )
 
-        st.markdown('<div class="filters-section-title">Metric</div>', unsafe_allow_html=True)
-        selected_metric_name = _render_radio_filter("Metric", tuple(metric_names()), "metric_name")
+        st.markdown('<div class="filters-section-title">Величина</div>', unsafe_allow_html=True)
+        selected_metric_name = _render_radio_filter(
+            "Величина",
+            tuple(metric_names()),
+            "metric_name",
+            format_func=_metric_label,
+        )
         methods = calculation_methods_for_metric(selected_metric_name)
         default_method_index = methods.index("relative") if "relative" in methods else 0
         selected_calculation_method = _render_radio_filter(
-            "Calculation method",
+            "Расчет",
             tuple(methods),
             f"calculation_method_{selected_metric_name}",
             default_index=default_method_index,
+            format_func=_calculation_method_label,
         )
-        min_observations = 1000
+        min_observations = MIN_OBSERVATIONS_DEFAULT
         if selected_calculation_method in {"relative", "partial_relative"}:
             min_observations = st.number_input(
-                "Minimum observations",
+                "Минимум наблюдений",
                 min_value=0,
                 max_value=10_000_000,
-                value=1000,
+                value=MIN_OBSERVATIONS_DEFAULT,
                 step=100,
             )
 
         apply_requested = st.form_submit_button(
-            "Apply",
+            "Применить",
             type="primary",
             **_stretch_width_kwargs(st.form_submit_button),
         )
@@ -500,6 +552,10 @@ def _render_filters(
             attempt_groups=_aggregation_filter_values(
                 attempt_groups,
                 filter_options.attempt_groups,
+            ),
+            super_ball_values=_aggregation_filter_values(
+                super_ball_values,
+                filter_options.super_ball_values,
             ),
         ),
         display_filters=DisplayFilters(
@@ -517,21 +573,38 @@ def _render_filters(
 
 
 def _aggregation_filter_values(
-    selected_options: tuple[str, ...],
-    all_options: tuple[str, ...],
-) -> tuple[str, ...]:
+    selected_options: tuple[Any, ...],
+    all_options: tuple[Any, ...],
+) -> tuple[Any, ...]:
     selected_set = set(selected_options)
     if not selected_set or selected_set == set(all_options):
         return ()
     return tuple(option for option in all_options if option in selected_set)
 
 
+def _attempt_group_label(value: str) -> str:
+    return ATTEMPT_GROUP_LABELS.get(value, value)
+
+
+def _boolean_label(value: bool) -> str:
+    return BOOLEAN_LABELS.get(value, str(value))
+
+
+def _metric_label(value: str) -> str:
+    return METRIC_LABELS.get(value, value)
+
+
+def _calculation_method_label(value: str) -> str:
+    return CALCULATION_METHOD_LABELS.get(value, value)
+
+
 def _render_checkbox_filter_group(
     label: str,
-    options: tuple[str, ...],
+    options: tuple[Any, ...],
     key_prefix: str,
-) -> tuple[str, ...]:
-    option_list = tuple(str(option) for option in options)
+    format_func: Any = str,
+) -> tuple[Any, ...]:
+    option_list = tuple(options)
     if not option_list:
         return ()
 
@@ -539,7 +612,7 @@ def _render_checkbox_filter_group(
     with st.expander(label, expanded=False):
         for option in option_list:
             if st.checkbox(
-                option,
+                format_func(option),
                 value=True,
                 key=_checkbox_filter_key(key_prefix, option),
             ):
@@ -547,8 +620,8 @@ def _render_checkbox_filter_group(
     return tuple(selected_options)
 
 
-def _checkbox_filter_key(key_prefix: str, option: str) -> str:
-    option_digest = hashlib.sha1(option.encode("utf-8")).hexdigest()[:12]
+def _checkbox_filter_key(key_prefix: str, option: Any) -> str:
+    option_digest = hashlib.sha1(str(option).encode("utf-8")).hexdigest()[:12]
     return f"filter_{key_prefix}_{option_digest}"
 
 
@@ -557,6 +630,7 @@ def _render_radio_filter(
     options: tuple[str, ...],
     key_prefix: str,
     default_index: int = 0,
+    format_func: Any = str,
 ) -> str:
     option_list = tuple(str(option) for option in options)
     if not option_list:
@@ -574,19 +648,33 @@ def _render_radio_filter(
             option_list,
             key=state_key,
             label_visibility="collapsed",
+            format_func=format_func,
         )
     return str(selected_value)
 
 
-def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) -> None:
+def _render_heatmap(
+    heatmap_table: pd.DataFrame,
+    metric_values: pd.DataFrame,
+    color_range_key: str = "default",
+) -> None:
     if heatmap_table.empty:
-        st.info("No rows match the current filters.")
+        st.info("Под текущие фильтры не попали строки.")
         return
 
     value_count_table = _aligned_heatmap_table(metric_values, "value_count", heatmap_table)
     sample_count_table = _aligned_heatmap_table(metric_values, "sample_count", heatmap_table)
     low_sample_table = _aligned_heatmap_table(metric_values, "is_low_sample", heatmap_table)
     low_sample_mask = low_sample_table.fillna(False).astype(bool)
+    display_heatmap_table = heatmap_table.mask(low_sample_mask)
+    color_range = _render_gradient_range_control(
+        display_heatmap_table,
+        key=f"gradient_range_{color_range_key}",
+    )
+    if color_range is None:
+        st.info("Все ячейки скрыты из-за порога «Минимум наблюдений».")  # noqa: RUF001
+        return
+
     customdata = _heatmap_custom_data(
         heatmap_table,
         value_count_table,
@@ -601,9 +689,17 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
         MAX_HEATMAP_HEIGHT,
     )
 
+    heatmap_kwargs = {}
+    if color_range[0] < color_range[1]:
+        heatmap_kwargs = {
+            "zauto": False,
+            "zmin": color_range[0],
+            "zmax": color_range[1],
+        }
+
     figure = go.Figure(
         data=go.Heatmap(
-            z=heatmap_table.to_numpy(),
+            z=display_heatmap_table.to_numpy(),
             x=x_values,
             y=y_values,
             colorscale=[
@@ -612,48 +708,24 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
                 [1.0, "#d47a00"],
             ],
             colorbar={
-                "title": {"text": "Metric value", "font": {"color": "#eef3f7"}},
-                "tickfont": {"color": "#d7dee6"},
+                "title": {"text": "Значение", "font": {"color": "#eef3f7"}},
+                "tickfont": {"color": CHART_TEXT_COLOR},
             },
             customdata=customdata,
             hovertemplate=(
-                "Level cohort: %{y}<br>"
-                "Date: %{x|%Y-%m-%d}<br>"
-                "Value: %{z:.3f}<br>"
-                "Metric count: %{customdata[0]:,.0f}<br>"
-                "Sample count: %{customdata[1]:,.0f}<br>"
-                "Sample status: %{customdata[2]}<extra></extra>"
+                "Когорта уровней: %{y}<br>"
+                "Дата: %{x|%Y-%m-%d}<br>"
+                "Значение: %{z:.3f}<br>"
+                "Количество величины: %{customdata[0]:,.0f}<br>"
+                "Наблюдения: %{customdata[1]:,.0f}<br>"
+                "Статус выборки: %{customdata[2]}<extra></extra>"
             ),
             xgap=0,
             ygap=0,
             zsmooth=False,
+            **heatmap_kwargs,
         )
     )
-    if low_sample_mask.any().any():
-        low_sample_z = low_sample_mask.astype(float).where(low_sample_mask)
-        figure.add_trace(
-            go.Heatmap(
-                z=low_sample_z.to_numpy(),
-                x=x_values,
-                y=y_values,
-                colorscale=[[0.0, "#6b7280"], [1.0, "#6b7280"]],
-                customdata=customdata,
-                hovertemplate=(
-                    "Level cohort: %{y}<br>"
-                    "Date: %{x|%Y-%m-%d}<br>"
-                    "Value: %{customdata[3]:.3f}<br>"
-                    "Metric count: %{customdata[0]:,.0f}<br>"
-                    "Sample count: %{customdata[1]:,.0f}<br>"
-                    "Sample status: %{customdata[2]}<extra></extra>"
-                ),
-                opacity=0.88,
-                showscale=False,
-                xgap=0,
-                ygap=0,
-                zmin=0,
-                zmax=1,
-            )
-        )
     figure.update_layout(
         dragmode="zoom",
         font={"color": CHART_TEXT_COLOR},
@@ -668,7 +740,7 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
         fixedrange=False,
         showgrid=False,
         tickformat="%b %Y",
-        title="Date",
+        title="Дата",
         zeroline=False,
     )
     figure.update_yaxes(
@@ -676,7 +748,7 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
         fixedrange=False,
         range=[min(y_values) - 5, max(y_values) + 5],
         showgrid=False,
-        title="Level cohort",
+        title="Когорта уровней",
         zeroline=False,
     )
     st.plotly_chart(
@@ -689,6 +761,64 @@ def _render_heatmap(heatmap_table: pd.DataFrame, metric_values: pd.DataFrame) ->
             "scrollZoom": True,
         },
     )
+
+
+def _render_gradient_range_control(
+    display_heatmap_table: pd.DataFrame,
+    key: str,
+) -> tuple[float, float] | None:
+    bounds = _heatmap_value_bounds(display_heatmap_table)
+    if bounds is None:
+        return None
+
+    minimum, maximum = bounds
+    if minimum == maximum:
+        st.caption(f"Диапазон градиента: {minimum:g}")
+        return bounds
+
+    _, control_column = st.columns((0.62, 0.38))
+    with control_column:
+        selected_range = st.slider(
+            "Диапазон градиента",
+            min_value=float(minimum),
+            max_value=float(maximum),
+            value=(float(minimum), float(maximum)),
+            step=_gradient_slider_step(minimum, maximum),
+            format=_gradient_slider_format(minimum, maximum),
+            key=key,
+        )
+    return float(selected_range[0]), float(selected_range[1])
+
+
+def _heatmap_value_bounds(display_heatmap_table: pd.DataFrame) -> tuple[float, float] | None:
+    values = pd.to_numeric(display_heatmap_table.stack(), errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.min()), float(values.max())
+
+
+def _gradient_slider_step(minimum: float, maximum: float) -> float:
+    value_range = abs(maximum - minimum)
+    if value_range >= 1000:
+        return max(1.0, round(value_range / 200))
+    if value_range >= 100:
+        return 0.5
+    if value_range >= 10:
+        return 0.1
+    if value_range >= 1:
+        return 0.01
+    return 0.001
+
+
+def _gradient_slider_format(minimum: float, maximum: float) -> str:
+    value_range = abs(maximum - minimum)
+    if value_range >= 100:
+        return "%.0f"
+    if value_range >= 10:
+        return "%.1f"
+    if value_range >= 1:
+        return "%.2f"
+    return "%.3f"
 
 
 def _aligned_heatmap_table(
@@ -711,7 +841,7 @@ def _heatmap_custom_data(
             [
                 value_count_table.iloc[row_index, column_index],
                 sample_count_table.iloc[row_index, column_index],
-                "low sample" if low_sample_mask.iloc[row_index, column_index] else "ok",
+                "мало данных" if low_sample_mask.iloc[row_index, column_index] else "достаточно",
                 heatmap_table.iloc[row_index, column_index],
             ]
             for column_index in range(len(value_count_table.columns))
@@ -814,13 +944,17 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             border-color: {theme.control_hover};
             color: {theme.text_color};
         }}
-        [data-testid="stSidebar"] .stButton button[kind="primary"] {{
+        [data-testid="stSidebar"] .stButton button[kind="primary"],
+        [data-testid="stSidebar"] button[kind="primaryFormSubmit"],
+        [data-testid="stSidebar"] [data-testid="stBaseButton-primaryFormSubmit"] {{
             background: {theme.accent_background};
             border-color: {theme.accent_background};
             color: {theme.accent_text};
             font-weight: 700;
         }}
-        [data-testid="stSidebar"] .stButton button[kind="primary"] p {{
+        [data-testid="stSidebar"] .stButton button[kind="primary"] p,
+        [data-testid="stSidebar"] button[kind="primaryFormSubmit"] p,
+        [data-testid="stSidebar"] [data-testid="stBaseButton-primaryFormSubmit"] p {{
             color: {theme.accent_text};
         }}
         .project-switcher {{

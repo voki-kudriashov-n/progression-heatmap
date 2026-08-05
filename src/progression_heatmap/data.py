@@ -25,6 +25,7 @@ RAW_REQUIRED_COLUMNS = (
     "reason_seg",
     "partition_date",
     "level_cohort",
+    "super_ball",
 )
 
 RAW_INTEGER_COLUMNS = (
@@ -38,6 +39,8 @@ RAW_INTEGER_COLUMNS = (
     "FF",
     "level_cohort",
 )
+
+RAW_BOOLEAN_COLUMNS = ("super_ball",)
 
 RAW_TEXT_COLUMNS = (
     "user_id",
@@ -124,6 +127,9 @@ def normalize_raw_attempts_data(frame: pd.DataFrame) -> pd.DataFrame:
             raise DataValidationError(msg)
         normalized[column] = numeric_values.astype(int)
 
+    for column in RAW_BOOLEAN_COLUMNS:
+        normalized[column] = _normalize_boolean_column(normalized[column], column)
+
     client_time = pd.to_datetime(normalized["client_time"], errors="coerce")
     if client_time.isna().any():
         msg = "Column 'client_time' contains invalid timestamp values."
@@ -184,6 +190,7 @@ def _load_raw_attempts_with_pyspark(path: Path):
             sql_types.StructField("reason_seg", sql_types.StringType(), nullable=False),
             sql_types.StructField("partition_date", sql_types.DateType(), nullable=False),
             sql_types.StructField("level_cohort", sql_types.IntegerType(), nullable=False),
+            sql_types.StructField("super_ball", sql_types.BooleanType(), nullable=False),
         ]
     )
     spark = (
@@ -206,6 +213,8 @@ def _normalize_raw_attempts_spark(frame):
             spark_column = spark_column.cast("string")
         elif column in RAW_INTEGER_COLUMNS:
             spark_column = spark_column.cast("int")
+        elif column in RAW_BOOLEAN_COLUMNS:
+            spark_column = spark_column.cast("boolean")
         elif column == "client_time":
             spark_column = spark_column.cast("timestamp")
         elif column == "partition_date":
@@ -213,6 +222,30 @@ def _normalize_raw_attempts_spark(frame):
         selected_columns.append(spark_column.alias(column))
 
     return frame.select(*selected_columns)
+
+
+def _normalize_boolean_column(values: pd.Series, column: str) -> pd.Series:
+    normalized = values.map(_normalize_boolean_value)
+    if normalized.isna().any():
+        msg = f"Column {column!r} contains invalid boolean values."
+        raise DataValidationError(msg)
+    return normalized.astype(bool)
+
+
+def _normalize_boolean_value(value) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if pd.isna(value):
+        return None
+    if isinstance(value, int | float) and value in {0, 1}:
+        return bool(value)
+
+    text = str(value).strip().lower()
+    if text in {"true", "t", "1", "yes", "y"}:
+        return True
+    if text in {"false", "f", "0", "no", "n"}:
+        return False
+    return None
 
 
 def _is_spark_frame(frame) -> bool:

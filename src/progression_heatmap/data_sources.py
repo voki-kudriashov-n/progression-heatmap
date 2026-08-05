@@ -28,6 +28,7 @@ from progression_heatmap.filters import (
     ATTEMPT_GROUP_FIRST,
     ATTEMPT_GROUP_REPEAT,
     ATTEMPT_GROUPS,
+    SUPER_BALL_VALUES,
     DateLike,
     PreAggregationFilters,
     RawFilterOptions,
@@ -182,6 +183,7 @@ class DatabricksSqlWarehouseRawAttemptsDataSource:
             traffic_types=_json_array_tuple(options["traffic_types"]),
             platform_names=_json_array_tuple(options["platform_names"]),
             attempt_groups=_json_array_tuple(options["attempt_groups"]),
+            super_ball_values=_json_bool_tuple(options["super_ball_values"]),
         )
 
     def aggregate_statistics(self, criteria: PreAggregationFilters):
@@ -435,6 +437,7 @@ def _filter_options_query(table_name: str) -> str:
         "  to_json(sort_array(collect_set(cast(payer_type as string)))) as payer_types,\n"
         "  to_json(sort_array(collect_set(cast(traffic_type as string)))) as traffic_types,\n"
         "  to_json(sort_array(collect_set(cast(platform_name as string)))) as platform_names,\n"
+        "  to_json(sort_array(collect_set(cast(super_ball as boolean)))) as super_ball_values,\n"
         "  to_json(sort_array(collect_set(\n"
         "    case\n"
         f"      when cast(attempt as int) = 1 then '{ATTEMPT_GROUP_FIRST}'\n"
@@ -555,6 +558,9 @@ def _where_clause(criteria: PreAggregationFilters) -> str:
         conditions.append(_sql_in_clause("traffic_type", criteria.traffic_types))
     if criteria.platform_names:
         conditions.append(_sql_in_clause("platform_name", criteria.platform_names))
+    super_ball_condition = _super_ball_condition(criteria.super_ball_values)
+    if super_ball_condition is not None:
+        conditions.append(super_ball_condition)
     attempt_group_condition = _attempt_group_condition(criteria.attempt_groups)
     if attempt_group_condition is not None:
         conditions.append(attempt_group_condition)
@@ -588,6 +594,25 @@ def _attempt_group_condition(attempt_groups: tuple[str, ...]) -> str | None:
     return "(" + " or ".join(conditions) + ")"
 
 
+def _super_ball_condition(super_ball_values: tuple[bool, ...]) -> str | None:
+    if not super_ball_values or set(super_ball_values) == set(SUPER_BALL_VALUES):
+        return None
+
+    conditions = []
+    for value in super_ball_values:
+        if value is True:
+            conditions.append("cast(super_ball as boolean) = true")
+        elif value is False:
+            conditions.append("cast(super_ball as boolean) = false")
+        else:
+            msg = f"Unsupported super_ball value: {value!r}"
+            raise ValueError(msg)
+
+    if not conditions:
+        return None
+    return "(" + " or ".join(conditions) + ")"
+
+
 def _sql_string_literal(value: str) -> str:
     escaped = str(value).replace("'", "''")
     return f"'{escaped}'"
@@ -603,6 +628,28 @@ def _json_array_tuple(value) -> tuple[str, ...]:
     if isinstance(value, str):
         return tuple(str(item) for item in json.loads(value))
     return tuple(str(item) for item in value)
+
+
+def _json_bool_tuple(value) -> tuple[bool, ...]:
+    if value is None:
+        return ()
+    parsed_value = json.loads(value) if isinstance(value, str) else value
+    parsed_values = set()
+    for item in parsed_value:
+        parsed_values.add(_bool_value(item))
+    return tuple(option for option in SUPER_BALL_VALUES if option in parsed_values)
+
+
+def _bool_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "t", "1", "yes", "y"}:
+        return True
+    if text in {"false", "f", "0", "no", "n"}:
+        return False
+    msg = f"Unsupported boolean value: {value!r}"
+    raise ValueError(msg)
 
 
 def _compact_sql(query: str, max_length: int = 1200) -> str:

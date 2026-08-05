@@ -23,6 +23,7 @@ def test_sample_raw_csv_loads_successfully() -> None:
     assert {"organic", "paid", "crosspromo", "incent", "NULL"}.issubset(
         set(frame["traffic_type"])
     )
+    assert set(frame["super_ball"]) == {False, True}
 
 
 def test_sample_raw_csv_covers_databricks_safe_date_and_level_range() -> None:
@@ -55,5 +56,5 @@ def test_required_columns_are_validated() -> None:
         "partition_date",
     ]
 
-    with pytest.raises(DataValidationError, match="level_cohort"):
+    with pytest.raises(DataValidationError, match=r"level_cohort|super_ball"):
         validate_required_columns(columns)

@@ -19,6 +19,7 @@ Project selection chooses the underlying raw data source. In Databricks Apps, ea
 - `failed`: raw failure flag.
 - `attempt`: attempt number for the level, used for the `1 attempt` / `2+ attempts` filter.
 - `platform_name`: platform segment, used as a pre-group filter.
+- `super_ball`: boolean flag for whether DRSh / the large rainbow ball was active, used as a pre-group filter.
 - `first_attempt`: raw first-attempt flag.
 - `FW`, `CW`, `CF`, `FF`: raw indicator columns for far win, close win, close fail, and far fail.
 - `reason_seg`: source reason segment.
@@ -28,11 +29,11 @@ Project selection chooses the underlying raw data source. In Databricks Apps, ea
 - `metric_name`: selected metric, such as `CF`, `FW`, `attempts`, `failed`, `wins`, `fail_rate`, `win_rate`, or `first_attempt`.
 - `calculation_method`: selected metric calculation, such as `absolute`, `relative`, `partial_relative`, or `average`.
 - `value_count`: numerator count behind the selected heatmap value, used in hover details.
-- `sample_count`: denominator or observation count behind the selected heatmap value, used in hover details and reliability shading.
+- `sample_count`: denominator or observation count behind the selected heatmap value, used in hover details and reliability filtering.
 - `is_low_sample`: reliability flag for percentage cells whose `sample_count` is below the selected minimum observations threshold.
 
 ## Reading The Heatmap
 
 Each cell represents one selected grouped metric value for a `level_cohort` and `partition_date` after pre-group filters are applied. Higher and lower values are shown through the heatmap color scale so analysts can quickly scan for progression shifts across dates and level cohorts.
 
-For percentage metrics, cells with fewer observations than the selected threshold are rendered with a gray overlay. The hover label shows the metric value, numerator count, sample count, and sample status.
+For percentage metrics, cells with fewer observations than the selected threshold are hidden from the heatmap. Hidden low-sample cells do not affect the color gradient distribution. The default threshold is `0`, so no cells are hidden until the user raises it.

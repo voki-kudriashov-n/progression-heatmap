@@ -335,6 +335,7 @@ def test_databricks_sql_filter_options_use_pushdown_queries() -> None:
                     "traffic_types": ['["organic","paid"]'],
                     "platform_names": ['["android","ios"]'],
                     "attempt_groups": ['["1 attempt","2+ attempts"]'],
+                    "super_ball_values": ["[true,false]"],
                 }
             ),
         ]
@@ -351,10 +352,12 @@ def test_databricks_sql_filter_options_use_pushdown_queries() -> None:
     assert options.traffic_types == ("organic", "paid")
     assert options.platform_names == ("android", "ios")
     assert options.attempt_groups == ("1 attempt", "2+ attempts")
+    assert options.super_ball_values == (True, False)
     assert len(connection_factory.queries) == 1
     query = connection_factory.queries[0]
     assert "min(cast(level_cohort as int))" in query
     assert "to_json(sort_array(collect_set(cast(payer_type as string))))" in query
+    assert "to_json(sort_array(collect_set(cast(super_ball as boolean))))" in query
     assert "when cast(attempt as int) = 1 then '1 attempt'" in query
     assert all("client_time" not in query for query in connection_factory.queries)
 
@@ -371,6 +374,7 @@ def test_databricks_sql_aggregate_statistics_pushes_filters_to_warehouse() -> No
         traffic_types=("organic",),
         platform_names=("ios",),
         attempt_groups=("2+ attempts",),
+        super_ball_values=(True,),
     )
 
     frame = source.aggregate_statistics(criteria)
@@ -388,6 +392,7 @@ def test_databricks_sql_aggregate_statistics_pushes_filters_to_warehouse() -> No
     assert "cast(payer_type as string) in ('payer', 'payer''s cohort')" in query
     assert "cast(traffic_type as string) in ('organic')" in query
     assert "cast(platform_name as string) in ('ios')" in query
+    assert "cast(super_ball as boolean) = true" in query
     assert "cast(attempt as int) >= 2" in query
     assert "client_time" not in query
 
@@ -496,6 +501,7 @@ def _raw_attempts_frame() -> pd.DataFrame:
             "reason_seg": ["close_fail"],
             "partition_date": ["2026-01-01"],
             "level_cohort": [10],
+            "super_ball": [True],
             "extra_column": ["ignored"],
         }
     )

@@ -62,7 +62,7 @@ make check
 
 ## Current Metric Flow
 
-The local CSV is loaded as raw attempt rows with fields such as `payer_type`, `traffic_type`, `platform_name`, `failed`, `attempt`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `partition_date`, and `level_cohort`.
+The local CSV is loaded as raw attempt rows with fields such as `payer_type`, `traffic_type`, `platform_name`, `super_ball`, `failed`, `attempt`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `partition_date`, and `level_cohort`.
 
 Pre-group aggregation filters:
 
@@ -70,8 +70,9 @@ Pre-group aggregation filters:
 - `traffic_type`
 - `platform_name`
 - `attempt` group
+- `super_ball`
 
-After those filters, grouped statistics are calculated by `level_cohort` and `partition_date` only after the user clicks `Apply`. The app keeps the last 10 grouped tables in memory, keyed by project/source and these aggregation filters. The `level_cohort` range and `partition_date` range are applied to that cached grouped table at display time, so changing only date or level does not recalculate the group by. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by.
+After those filters, grouped statistics are calculated by `level_cohort` and `partition_date` only after the user clicks `Применить`. The app keeps the last 10 grouped tables in memory, keyed by project/source and these aggregation filters. The `level_cohort` range and `partition_date` range are applied to that cached grouped table at display time, so changing only date or level does not recalculate the group by. Metric selection then chooses a precomputed statistic, such as `CF / relative`, `failed / absolute`, `fail_rate / relative`, `win_rate / relative`, `attempt / average`, or `first_attempt / relative`, without recalculating the group by. Low-sample percentage cells are hidden when `Минимум наблюдений` is greater than `0`, so hidden values do not affect the heatmap color gradient. The chart area also has a `Диапазон градиента` slider that changes only Plotly `zmin`/`zmax` for the already prepared heatmap table.
 
 ## Databricks Data Path
 

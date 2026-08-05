@@ -46,7 +46,7 @@ Pre-group filters that change the grouped values are applied before aggregation:
 - traffic type
 - platform name
 
-After the user clicks `Apply`, `metrics.py` calculates grouped statistics by `level_cohort` and `partition_date`. The grouped statistics include absolute sums, wins, rates, partial rates, counts, and averages. The Streamlit app caches the last 10 grouped statistic tables based on these pre-group filters and the selected project/source. Level cohort range and partition date range are applied to the cached grouped rows immediately before rendering, so changing only level/date does not trigger another Spark or SQL aggregation.
+After the user clicks `Применить`, `metrics.py` calculates grouped statistics by `level_cohort` and `partition_date`. The grouped statistics include absolute sums, wins, rates, partial rates, counts, and averages. The Streamlit app caches the last 10 grouped statistic tables based on these pre-group filters and the selected project/source. Level cohort range and partition date range are applied to the cached grouped rows immediately before rendering, so changing only level/date does not trigger another Spark or SQL aggregation. Low-sample percentage cells are masked out before rendering when the selected minimum observation threshold is greater than `0`, so they do not affect the heatmap color gradient. The `Диапазон градиента` chart control changes only the rendered Plotly `zmin`/`zmax` values and does not alter the grouped data cache key.
 
 Changing `metric_name`, `calculation_method`, or the minimum observations threshold selects a precomputed statistic without recalculating the group by.
 
