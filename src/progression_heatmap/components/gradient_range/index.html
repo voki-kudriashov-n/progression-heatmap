@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html,
+    body {
+      background: #000;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      padding: 0;
+      width: 100%;
+    }
+
+    .gradient-range {
+      box-sizing: border-box;
+      cursor: ns-resize;
+      height: 100%;
+      min-width: 72px;
+      position: relative;
+      touch-action: none;
+      user-select: none;
+      width: 100%;
+    }
+
+    .gradient-rail,
+    .gradient-segment {
+      border-radius: 0;
+      box-sizing: border-box;
+      left: 6px;
+      position: absolute;
+      width: 28px;
+    }
+
+    .gradient-rail {
+      background: #050505;
+      border: 1px solid #222831;
+      bottom: 0;
+      top: 0;
+    }
+
+    .gradient-segment {
+      border: 1px solid #2c333a;
+      pointer-events: none;
+    }
+
+    .slider-lane {
+      border-right: 2px solid rgba(255, 255, 255, 0.92);
+      bottom: 0;
+      pointer-events: none;
+      position: absolute;
+      right: 4px;
+      top: 0;
+      width: 1px;
+    }
+
+    .gradient-handle {
+      cursor: ns-resize;
+      height: 18px;
+      left: -2px;
+      position: absolute;
+      transform: translateY(-9px);
+      touch-action: none;
+      width: 44px;
+      z-index: 4;
+    }
+
+    .gradient-handle::before {
+      background: #ff3333;
+      box-shadow: 0 0 0 1px rgba(255, 0, 0, 0.35);
+      content: "";
+      height: 2px;
+      left: 0;
+      position: absolute;
+      right: 0;
+      top: 8px;
+    }
+
+    .gradient-handle::after {
+      border-left: 2px solid #ff3333;
+      border-right: 2px solid #ff3333;
+      box-sizing: border-box;
+      content: "";
+      height: 6px;
+      left: 0;
+      position: absolute;
+      right: 0;
+      top: 6px;
+    }
+
+    .gradient-tick {
+      color: #f3f4f6;
+      font-size: 11px;
+      font-weight: 700;
+      left: 38px;
+      line-height: 1;
+      pointer-events: none;
+      position: absolute;
+      transform: translateY(-50%);
+      white-space: nowrap;
+      z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <div
+    id="gradient-range"
+    class="gradient-range"
+    aria-label="Диапазон градиента"
+    role="slider"
+    tabindex="0"
+  >
+    <div class="gradient-rail"></div>
+    <div id="gradient-segment" class="gradient-segment"></div>
+    <div class="slider-lane"></div>
+    <div id="upper-handle" class="gradient-handle" data-handle="maximum"></div>
+    <div id="lower-handle" class="gradient-handle" data-handle="minimum"></div>
+  </div>
+
+  <script>
+    const root = document.getElementById("gradient-range");
+    const segment = document.getElementById("gradient-segment");
+    const upperHandle = document.getElementById("upper-handle");
+    const lowerHandle = document.getElementById("lower-handle");
+    const tickCount = 7;
+
+    let minimum = 0;
+    let maximum = 1;
+    let selectedMinimum = 0;
+    let selectedMaximum = 1;
+    let step = 0.01;
+    let colorscale = [
+      { position: 0, color: "#1f6fae" },
+      { position: 0.5, color: "#edf3f4" },
+      { position: 1, color: "#d47a00" },
+    ];
+    let activeHandle = null;
+    let pendingFrame = null;
+
+    function sendStreamlitMessage(type, payload) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
+    }
+
+    function setComponentReady() {
+      sendStreamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+    }
+
+    function setFrameHeight(height) {
+      sendStreamlitMessage("streamlit:setFrameHeight", { height });
+    }
+
+    function setComponentValue() {
+      sendStreamlitMessage("streamlit:setComponentValue", {
+        dataType: "json",
+        value: [roundForPython(selectedMinimum), roundForPython(selectedMaximum)],
+      });
+    }
+
+    function clamp(value, lower, upper) {
+      return Math.min(Math.max(value, lower), upper);
+    }
+
+    function snap(value) {
+      if (!Number.isFinite(step) || step <= 0) {
+        return value;
+      }
+      return Math.round(value / step) * step;
+    }
+
+    function roundForPython(value) {
+      return Number.parseFloat(value.toFixed(6));
+    }
+
+    function normalizeSelection(rawMinimum, rawMaximum) {
+      const numericMinimum = Number(rawMinimum);
+      const numericMaximum = Number(rawMaximum);
+      selectedMinimum = clamp(
+        Number.isFinite(numericMinimum) ? numericMinimum : minimum,
+        minimum,
+        maximum,
+      );
+      selectedMaximum = clamp(
+        Number.isFinite(numericMaximum) ? numericMaximum : maximum,
+        minimum,
+        maximum,
+      );
+      if (selectedMinimum > selectedMaximum) {
+        [selectedMinimum, selectedMaximum] = [selectedMaximum, selectedMinimum];
+      }
+    }
+
+    function valueToTopPercent(value) {
+      if (minimum === maximum) {
+        return 50;
+      }
+      return ((maximum - value) / (maximum - minimum)) * 100;
+    }
+
+    function pointerToValue(clientY) {
+      const rect = root.getBoundingClientRect();
+      const ratio = clamp((clientY - rect.top) / rect.height, 0, 1);
+      return maximum - ratio * (maximum - minimum);
+    }
+
+    function gradientCss() {
+      const stops = colorscale
+        .map((stop) => `${stop.color} ${Number(stop.position) * 100}%`)
+        .join(", ");
+      return `linear-gradient(to top, ${stops})`;
+    }
+
+    function tickLabel(value) {
+      const absoluteValue = Math.abs(value);
+      if (absoluteValue >= 100) return value.toFixed(0);
+      if (absoluteValue >= 10) return value.toFixed(1);
+      if (absoluteValue >= 1) return value.toFixed(2);
+      return value.toFixed(3);
+    }
+
+    function tickValues() {
+      if (selectedMinimum === selectedMaximum) {
+        return [selectedMinimum];
+      }
+      return Array.from({ length: tickCount }, (_, index) => {
+        return selectedMaximum - ((selectedMaximum - selectedMinimum) * index) / (tickCount - 1);
+      });
+    }
+
+    function renderTicks() {
+      root.querySelectorAll(".gradient-tick").forEach((tick) => tick.remove());
+      tickValues().forEach((value) => {
+        const tick = document.createElement("div");
+        tick.className = "gradient-tick";
+        tick.style.top = `${valueToTopPercent(value)}%`;
+        tick.textContent = tickLabel(value);
+        root.appendChild(tick);
+      });
+    }
+
+    function render() {
+      const topPosition = valueToTopPercent(selectedMaximum);
+      const bottomPosition = valueToTopPercent(selectedMinimum);
+      const segmentHeight = Math.max(0, bottomPosition - topPosition);
+
+      segment.style.top = `${topPosition}%`;
+      segment.style.height = `${segmentHeight}%`;
+      segment.style.background = gradientCss();
+      upperHandle.style.top = `${topPosition}%`;
+      lowerHandle.style.top = `${bottomPosition}%`;
+      root.setAttribute(
+        "aria-valuetext",
+        `${tickLabel(selectedMinimum)} - ${tickLabel(selectedMaximum)}`,
+      );
+      renderTicks();
+    }
+
+    function scheduleRender() {
+      if (pendingFrame !== null) {
+        return;
+      }
+      pendingFrame = window.requestAnimationFrame(() => {
+        pendingFrame = null;
+        render();
+      });
+    }
+
+    function chooseHandle(clientY, explicitHandle) {
+      if (explicitHandle === "minimum" || explicitHandle === "maximum") {
+        return explicitHandle;
+      }
+      const rootRect = root.getBoundingClientRect();
+      const pointerY = clamp(clientY - rootRect.top, 0, rootRect.height);
+      const upperY = (valueToTopPercent(selectedMaximum) / 100) * rootRect.height;
+      const lowerY = (valueToTopPercent(selectedMinimum) / 100) * rootRect.height;
+      if (Math.abs(pointerY - upperY) === Math.abs(pointerY - lowerY)) {
+        return pointerY < rootRect.height / 2 ? "maximum" : "minimum";
+      }
+      return Math.abs(pointerY - upperY) < Math.abs(pointerY - lowerY)
+        ? "maximum"
+        : "minimum";
+    }
+
+    function updateFromPointer(event) {
+      const value = snap(pointerToValue(event.clientY));
+      if (activeHandle === "maximum") {
+        selectedMaximum = clamp(value, selectedMinimum, maximum);
+      } else {
+        selectedMinimum = clamp(value, minimum, selectedMaximum);
+      }
+      scheduleRender();
+    }
+
+    function onPointerDown(event) {
+      event.preventDefault();
+      activeHandle = chooseHandle(event.clientY, event.target.dataset.handle);
+      root.setPointerCapture(event.pointerId);
+      updateFromPointer(event);
+    }
+
+    function onPointerMove(event) {
+      if (activeHandle === null) {
+        return;
+      }
+      event.preventDefault();
+      updateFromPointer(event);
+    }
+
+    function onPointerUp(event) {
+      if (activeHandle === null) {
+        return;
+      }
+      event.preventDefault();
+      updateFromPointer(event);
+      if (root.hasPointerCapture(event.pointerId)) {
+        root.releasePointerCapture(event.pointerId);
+      }
+      activeHandle = null;
+      setComponentValue();
+    }
+
+    function onKeyDown(event) {
+      const keyStep = event.shiftKey ? step * 10 : step;
+      if (event.key === "ArrowUp") {
+        selectedMaximum = clamp(snap(selectedMaximum + keyStep), selectedMinimum, maximum);
+      } else if (event.key === "ArrowDown") {
+        selectedMaximum = clamp(snap(selectedMaximum - keyStep), selectedMinimum, maximum);
+      } else if (event.key === "PageUp") {
+        selectedMinimum = clamp(snap(selectedMinimum + keyStep * 10), minimum, selectedMaximum);
+      } else if (event.key === "PageDown") {
+        selectedMinimum = clamp(snap(selectedMinimum - keyStep * 10), minimum, selectedMaximum);
+      } else {
+        return;
+      }
+      event.preventDefault();
+      render();
+      setComponentValue();
+    }
+
+    function updateArgs(args) {
+      minimum = Number(args.minimum);
+      maximum = Number(args.maximum);
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
+        minimum = 0;
+        maximum = 1;
+      }
+      if (minimum > maximum) {
+        [minimum, maximum] = [maximum, minimum];
+      }
+      step = Number(args.step) || 0.01;
+      colorscale = Array.isArray(args.colorscale) && args.colorscale.length > 0
+        ? args.colorscale
+        : colorscale;
+
+      const value = Array.isArray(args.value) ? args.value : [minimum, maximum];
+      normalizeSelection(value[0], value[1]);
+      const height = Number(args.height) || root.getBoundingClientRect().height || 560;
+      setFrameHeight(Math.round(height));
+      render();
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.data?.type !== "streamlit:render") {
+        return;
+      }
+      updateArgs(event.data.args || {});
+    });
+
+    root.addEventListener("pointerdown", onPointerDown);
+    root.addEventListener("pointermove", onPointerMove);
+    root.addEventListener("pointerup", onPointerUp);
+    root.addEventListener("pointercancel", onPointerUp);
+    root.addEventListener("keydown", onKeyDown);
+
+    setComponentReady();
+  </script>
+</body>
+</html>

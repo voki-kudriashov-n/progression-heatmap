@@ -33,6 +33,7 @@ from progression_heatmap.filters import (
     PreAggregationFilters,
     apply_grouped_display_filters,
 )
+from progression_heatmap.gradient_range import gradient_range
 from progression_heatmap.heatmap import prepare_heatmap_table
 from progression_heatmap.metrics import (
     calculation_methods_for_metric,
@@ -48,6 +49,11 @@ STATISTICS_CACHE_MAX_ENTRIES = 10
 WORKSPACE_BACKGROUND = "#000000"
 CHART_TEXT_COLOR = "#d7dee6"
 MIN_OBSERVATIONS_DEFAULT = 0
+HEATMAP_COLORSCALE = (
+    (0.0, "#1f6fae"),
+    (0.5, "#edf3f4"),
+    (1.0, "#d47a00"),
+)
 LOGGER = logging.getLogger(__name__)
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PROJECT_ICONS: dict[str, Path] = {
@@ -667,13 +673,6 @@ def _render_heatmap(
     low_sample_table = _aligned_heatmap_table(metric_values, "is_low_sample", heatmap_table)
     low_sample_mask = low_sample_table.fillna(False).astype(bool)
     display_heatmap_table = heatmap_table.mask(low_sample_mask)
-    color_range = _render_gradient_range_control(
-        display_heatmap_table,
-        key=f"gradient_range_{color_range_key}",
-    )
-    if color_range is None:
-        st.info("Все ячейки скрыты из-за порога «Минимум наблюдений».")  # noqa: RUF001
-        return
 
     customdata = _heatmap_custom_data(
         heatmap_table,
@@ -688,7 +687,48 @@ def _render_heatmap(
         max(MIN_HEATMAP_HEIGHT, len(y_values) * HEATMAP_ROW_HEIGHT),
         MAX_HEATMAP_HEIGHT,
     )
+    plot_area_height = height - 56
 
+    chart_column, gradient_column = st.columns((0.90, 0.10), gap="small")
+    with gradient_column:
+        color_range = _render_gradient_range_control(
+            display_heatmap_table,
+            key=f"gradient_range_{color_range_key}",
+            height=plot_area_height,
+        )
+    if color_range is None:
+        st.info("Все ячейки скрыты из-за порога «Минимум наблюдений».")  # noqa: RUF001
+        return
+
+    figure = _heatmap_figure(
+        display_heatmap_table,
+        customdata,
+        x_values,
+        y_values,
+        height,
+        color_range,
+    )
+    with chart_column:
+        st.plotly_chart(
+            figure,
+            **_stretch_width_kwargs(st.plotly_chart),
+            config={
+                "displayModeBar": True,
+                "displaylogo": False,
+                "doubleClick": "reset",
+                "scrollZoom": True,
+            },
+        )
+
+
+def _heatmap_figure(
+    display_heatmap_table: pd.DataFrame,
+    customdata,
+    x_values,
+    y_values: list[int],
+    height: int,
+    color_range: tuple[float, float],
+) -> go.Figure:
     heatmap_kwargs = {}
     if color_range[0] < color_range[1]:
         heatmap_kwargs = {
@@ -702,15 +742,7 @@ def _render_heatmap(
             z=display_heatmap_table.to_numpy(),
             x=x_values,
             y=y_values,
-            colorscale=[
-                [0.0, "#1f6fae"],
-                [0.5, "#edf3f4"],
-                [1.0, "#d47a00"],
-            ],
-            colorbar={
-                "title": {"text": "Значение", "font": {"color": "#eef3f7"}},
-                "tickfont": {"color": CHART_TEXT_COLOR},
-            },
+            colorscale=list(HEATMAP_COLORSCALE),
             customdata=customdata,
             hovertemplate=(
                 "Когорта уровней: %{y}<br>"
@@ -720,6 +752,7 @@ def _render_heatmap(
                 "Наблюдения: %{customdata[1]:,.0f}<br>"
                 "Статус выборки: %{customdata[2]}<extra></extra>"
             ),
+            showscale=False,
             xgap=0,
             ygap=0,
             zsmooth=False,
@@ -751,43 +784,27 @@ def _render_heatmap(
         title="Когорта уровней",
         zeroline=False,
     )
-    st.plotly_chart(
-        figure,
-        **_stretch_width_kwargs(st.plotly_chart),
-        config={
-            "displayModeBar": True,
-            "displaylogo": False,
-            "doubleClick": "reset",
-            "scrollZoom": True,
-        },
-    )
+    return figure
 
 
 def _render_gradient_range_control(
     display_heatmap_table: pd.DataFrame,
     key: str,
+    height: int,
 ) -> tuple[float, float] | None:
     bounds = _heatmap_value_bounds(display_heatmap_table)
     if bounds is None:
         return None
 
     minimum, maximum = bounds
-    if minimum == maximum:
-        st.caption(f"Диапазон градиента: {minimum:g}")
-        return bounds
-
-    _, control_column = st.columns((0.62, 0.38))
-    with control_column:
-        selected_range = st.slider(
-            "Диапазон градиента",
-            min_value=float(minimum),
-            max_value=float(maximum),
-            value=(float(minimum), float(maximum)),
-            step=_gradient_slider_step(minimum, maximum),
-            format=_gradient_slider_format(minimum, maximum),
-            key=key,
-        )
-    return float(selected_range[0]), float(selected_range[1])
+    return gradient_range(
+        minimum=minimum,
+        maximum=maximum,
+        value=bounds,
+        colorscale=HEATMAP_COLORSCALE,
+        height=height,
+        key=key,
+    )
 
 
 def _heatmap_value_bounds(display_heatmap_table: pd.DataFrame) -> tuple[float, float] | None:
@@ -795,30 +812,6 @@ def _heatmap_value_bounds(display_heatmap_table: pd.DataFrame) -> tuple[float, f
     if values.empty:
         return None
     return float(values.min()), float(values.max())
-
-
-def _gradient_slider_step(minimum: float, maximum: float) -> float:
-    value_range = abs(maximum - minimum)
-    if value_range >= 1000:
-        return max(1.0, round(value_range / 200))
-    if value_range >= 100:
-        return 0.5
-    if value_range >= 10:
-        return 0.1
-    if value_range >= 1:
-        return 0.01
-    return 0.001
-
-
-def _gradient_slider_format(minimum: float, maximum: float) -> str:
-    value_range = abs(maximum - minimum)
-    if value_range >= 100:
-        return "%.0f"
-    if value_range >= 10:
-        return "%.1f"
-    if value_range >= 1:
-        return "%.2f"
-    return "%.3f"
 
 
 def _aligned_heatmap_table(

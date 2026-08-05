@@ -4,11 +4,10 @@ import pandas as pd
 
 from progression_heatmap.app import (
     _aggregation_filter_values,
-    _gradient_slider_format,
-    _gradient_slider_step,
     _heatmap_value_bounds,
     _render_heatmap,
 )
+from progression_heatmap.gradient_range import gradient_slider_format, gradient_slider_step
 
 
 def test_aggregation_filter_values_normalize_all_selected_to_no_filter() -> None:
@@ -27,7 +26,7 @@ def test_render_heatmap_hides_low_sample_cells_without_overlay(monkeypatch) -> N
         captured["kwargs"] = kwargs
 
     monkeypatch.setattr("streamlit.plotly_chart", fake_plotly_chart)
-    monkeypatch.setattr("streamlit.slider", lambda *args, **kwargs: (5.0, 15.0))
+    monkeypatch.setattr("progression_heatmap.app.gradient_range", lambda **kwargs: (5.0, 15.0))
 
     heatmap_table = pd.DataFrame(
         [[10.0, 20.0, 30.0]],
@@ -63,7 +62,7 @@ def test_heatmap_value_bounds_ignore_hidden_cells() -> None:
 
 
 def test_gradient_slider_uses_readable_steps_and_formats() -> None:
-    assert _gradient_slider_step(0.0, 100.0) == 0.5
-    assert _gradient_slider_format(0.0, 100.0) == "%.0f"
-    assert _gradient_slider_step(0.0, 1.0) == 0.01
-    assert _gradient_slider_format(0.0, 1.0) == "%.2f"
+    assert gradient_slider_step(0.0, 100.0) == 0.5
+    assert gradient_slider_format(0.0, 100.0) == "%.0f"
+    assert gradient_slider_step(0.0, 1.0) == 0.01
+    assert gradient_slider_format(0.0, 1.0) == "%.2f"
