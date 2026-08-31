@@ -1,0 +1,22 @@
+resources:
+  jobs:
+    heatmap_source_update:
+      name: heatmap source update
+      schedule:
+        quartz_cron_expression: 23 0 9 * * ?
+        timezone_id: Europe/Belgrade
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: source_update
+          notebook_task:
+            notebook_path: ../notebooks/source update.ipynb
+            base_parameters:
+              RUN_ON_TEST_USERS: "False"
+              LEVEL_COHORT_FRACTION: "100"
+      notification_settings:
+        no_alert_for_skipped_runs: true
+      email_notifications:
+        on_failure:
+          - nikita.kudriashov@vokigames.com
+      queue:
+        enabled: true
