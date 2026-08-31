@@ -1,0 +1,4 @@
+# Strip cell outputs from Jupyter notebooks before committing.
+# Requires: nbstripout --install  (run once after cloning; `make setup` does it).
+*.ipynb filter=nbstripout
+*.ipynb diff=nbstripout

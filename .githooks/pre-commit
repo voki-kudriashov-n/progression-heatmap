@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Pre-commit hook: strip cell outputs from all staged Jupyter notebooks.
+# Keeps diffs clean and prevents large binary blobs in version control.
+#
+# Activated by:  git config core.hooksPath .githooks
+# (done automatically by `make setup`)
+#
+# Requires:  pip install nbstripout  (included in dev dependencies)
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.ipynb' || true)
+
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+for nb in $staged; do
+    nbstripout "$nb"
+    git add -- "$nb"
+done
+
+count=$(echo "$staged" | wc -l | tr -d ' ')
+echo "pre-commit: cleared outputs from $count notebook(s)." >&2
