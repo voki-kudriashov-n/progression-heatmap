@@ -64,13 +64,15 @@ In Databricks mode the app does not fetch the full raw table into Streamlit. Fil
 
 The Databricks SQL aggregation returns `wins_absolute`, `fails_absolute`, percentage denominators, and the selected metric context needed for hover details and low-sample filtering. The `1 attempt` / `2+ attempts` filter and `super_ball` filter are pushed into the SQL `where` clause.
 
-The app starts SQL aggregation only after the user clicks `Apply`. It keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
+The app starts SQL aggregation only after the user clicks `Применить`. It keeps the last 10 grouped statistic tables in Streamlit's in-memory data cache. Level cohort range and partition date range are applied to the cached grouped table after the SQL aggregation, so changing only level/date avoids another warehouse query.
 
 The app writes INFO diagnostics to Databricks App logs. Useful markers are `app.filter_options.start`, `databricks_sql.filter_options.connect.start`, `databricks_sql.filter_options.execute.start`, `databricks_sql.filter_options.fetch.start`, `app.statistics.start`, and the matching `.done` or `.error` lines.
 
 The notebook materializes `objects` as Unity Catalog tables with the same raw fields used by the local CSV: `client_time`, `user_id`, `balance_id`, `traffic_type`, `payer_type`, `failed`, `attempt`, `platform_name`, `first_attempt`, `FW`, `CW`, `CF`, `FF`, `reason_seg`, `partition_date`, `level_cohort`, and `super_ball`.
 
 The table names are intentionally configured per project. The project selector chooses the source table; it is not implemented as a filter inside one shared table.
+
+The current `prod` config points `MyM` to `game_data_prod.analytics_voki.raw_objects_mm_test_users` for temporary smoke-testing. Replace it with the production MyM table when the Databricks-side dataset is ready.
 
 `notebooks/source update.ipynb` writes the app-facing raw tables with `saveAsTable`:
 
@@ -94,7 +96,7 @@ Example grants:
 
 ```sql
 GRANT USE CATALOG ON CATALOG game_data_prod TO `<app-service-principal>`;
-GRANT USE SCHEMA ON SCHEMA game_data_prod.<schema_name> TO `<app-service-principal>`;
+GRANT USE SCHEMA ON SCHEMA game_data_prod.analytics_voki TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm TO `<app-service-principal>`;
 GRANT SELECT ON TABLE game_data_prod.analytics_voki.raw_objects_mm_test_users TO `<app-service-principal>`;
 ```
