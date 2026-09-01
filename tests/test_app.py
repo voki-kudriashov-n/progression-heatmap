@@ -25,7 +25,10 @@ def test_render_heatmap_hides_low_sample_cells_without_overlay(monkeypatch) -> N
         captured["figure"] = figure
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr("streamlit.plotly_chart", fake_plotly_chart)
+    monkeypatch.setattr(
+        "progression_heatmap.app.plotly_chart_with_smooth_trackpad_zoom",
+        fake_plotly_chart,
+    )
     monkeypatch.setattr("progression_heatmap.app.gradient_range", lambda **kwargs: (5.0, 15.0))
 
     heatmap_table = pd.DataFrame(
@@ -53,6 +56,9 @@ def test_render_heatmap_hides_low_sample_cells_without_overlay(monkeypatch) -> N
     assert figure.data[0].z[0][2] == 30.0
     assert figure.data[0].zmin == 5.0
     assert figure.data[0].zmax == 15.0
+    assert figure.layout.yaxis.dtick == 10
+    assert figure.layout.yaxis.title.text == "№ сотни уровней"
+    assert "№ сотни уровней" in figure.data[0].hovertemplate
 
 
 def test_heatmap_value_bounds_ignore_hidden_cells() -> None:

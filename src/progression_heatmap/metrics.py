@@ -67,13 +67,6 @@ METRIC_DEFINITIONS = (
         "FW_absolute",
         "wins_absolute",
     ),
-    MetricDefinition(
-        "attempts",
-        "absolute",
-        "attempts_absolute",
-        "attempts_absolute",
-        "attempts_absolute",
-    ),
     MetricDefinition("attempt", "average", "attempt_average", None, "attempts_absolute"),
     MetricDefinition(
         "failed",
@@ -95,20 +88,6 @@ METRIC_DEFINITIONS = (
         "relative",
         "win_rate_relative",
         "wins_absolute",
-        "attempts_absolute",
-    ),
-    MetricDefinition(
-        "first_attempt",
-        "absolute",
-        "first_attempt_absolute",
-        "first_attempt_absolute",
-        "attempts_absolute",
-    ),
-    MetricDefinition(
-        "first_attempt",
-        "relative",
-        "first_attempt_relative",
-        "first_attempt_absolute",
         "attempts_absolute",
     ),
 )

@@ -41,6 +41,7 @@ from progression_heatmap.metrics import (
     select_metric_values_with_context,
     to_pandas_frame,
 )
+from progression_heatmap.plotly_chart import plotly_chart_with_smooth_trackpad_zoom
 
 MIN_HEATMAP_HEIGHT = 560
 MAX_HEATMAP_HEIGHT = 980
@@ -73,13 +74,11 @@ METRIC_LABELS = {
     "CW": "CW",
     "FF": "FF",
     "FW": "FW",
-    "attempts": "Попытки",
     "attempt": "Средняя попытка",
     "failed": "Проигрыши",
     "wins": "Победы",
     "fail_rate": "% проигрышей",
     "win_rate": "% побед",
-    "first_attempt": "Первые попытки",
 }
 CALCULATION_METHOD_LABELS = {
     "absolute": "Абсолютное",
@@ -447,10 +446,10 @@ def _render_filters(
     filter_options,
 ) -> tuple[ChartRequest, bool]:
     with st.sidebar.form("filters_form", border=False):
-        st.markdown('<div class="filters-title">Фильтры</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="filters-section-title">Вид</div>', unsafe_allow_html=True)
-        st.markdown('<div class="filter-field-title">Когорта уровней</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="filter-field-title">№ сотни уровней (balance_id)</div>',
+            unsafe_allow_html=True,
+        )
         min_level_column, max_level_column = st.columns(2)
         with min_level_column:
             raw_level_min = st.number_input(
@@ -709,16 +708,7 @@ def _render_heatmap(
         color_range,
     )
     with chart_column:
-        st.plotly_chart(
-            figure,
-            **_stretch_width_kwargs(st.plotly_chart),
-            config={
-                "displayModeBar": True,
-                "displaylogo": False,
-                "doubleClick": "reset",
-                "scrollZoom": True,
-            },
-        )
+        plotly_chart_with_smooth_trackpad_zoom(figure, height=height)
 
 
 def _heatmap_figure(
@@ -745,7 +735,7 @@ def _heatmap_figure(
             colorscale=list(HEATMAP_COLORSCALE),
             customdata=customdata,
             hovertemplate=(
-                "Когорта уровней: %{y}<br>"
+                "№ сотни уровней: %{y}<br>"
                 "Дата: %{x|%Y-%m-%d}<br>"
                 "Значение: %{z:.3f}<br>"
                 "Количество величины: %{customdata[0]:,.0f}<br>"
@@ -777,11 +767,11 @@ def _heatmap_figure(
         zeroline=False,
     )
     figure.update_yaxes(
-        dtick=100,
+        dtick=10,
         fixedrange=False,
         range=[min(y_values) - 5, max(y_values) + 5],
         showgrid=False,
-        title="Когорта уровней",
+        title="№ сотни уровней",
         zeroline=False,
     )
     return figure
@@ -906,9 +896,6 @@ def _apply_page_style(theme: ProjectTheme) -> None:
         [data-testid="stSidebar"] [data-testid="stElementContainer"] {{
             margin-bottom: 0.2rem;
         }}
-        [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.filters-title) {{
-            margin-bottom: 0.45rem;
-        }}
         [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.filters-section-title) {{
             margin-bottom: 0.55rem;
             margin-top: 0.45rem;
@@ -989,13 +976,6 @@ def _apply_page_style(theme: ProjectTheme) -> None:
             height: 28px;
             object-fit: contain;
             width: 28px;
-        }}
-        .filters-title {{
-            color: {theme.text_color};
-            font-size: 1.02rem;
-            font-weight: 800;
-            line-height: 1.2;
-            margin: 0.1rem 0 0.55rem;
         }}
         .filters-section-title {{
             color: {theme.muted_text_color};

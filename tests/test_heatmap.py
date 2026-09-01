@@ -14,6 +14,7 @@ from progression_heatmap.filters import (
 from progression_heatmap.heatmap import prepare_heatmap_records, prepare_heatmap_table
 from progression_heatmap.metrics import (
     aggregate_statistics,
+    metric_names,
     select_metric_values,
     select_metric_values_with_context,
 )
@@ -66,7 +67,7 @@ def test_grouped_metric_values_return_level_group_date_value_records() -> None:
     )
     metric_values = select_metric_values(
         statistics,
-        MetricSelection(metric_name="first_attempt", calculation_method="relative"),
+        MetricSelection(metric_name="win_rate", calculation_method="relative"),
     )
 
     records = prepare_heatmap_records(metric_values)
@@ -77,6 +78,14 @@ def test_grouped_metric_values_return_level_group_date_value_records() -> None:
     assert pd.api.types.is_datetime64_any_dtype(records["date"])
     assert pd.api.types.is_float_dtype(records["value"])
     assert records.groupby(["level_group", "date"]).size().max() == 1
+
+
+def test_attempt_count_and_first_attempt_metrics_are_not_selectable() -> None:
+    names = metric_names()
+
+    assert "attempts" not in names
+    assert "first_attempt" not in names
+    assert "attempt" in names
 
 
 def test_display_filters_match_pre_aggregation_level_and_date_filters() -> None:
